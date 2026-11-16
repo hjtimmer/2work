@@ -1,8 +1,9 @@
 (ns twoview.sessie
   "Sessies in het GEHEUGEN (atoom/hashmap): token -> sessie.
-  Elke sessie heeft een expiratietijd die bij elke geslaagde
-  database-actie wordt ververst naar nu + :sessie-max-seconden.
-  Bij herstart van de server vervallen alle sessies."
+  Elke sessie bewaart de maximale duur uit de config
+  (:sessie-max-seconden). Bij elke geslaagde database-actie wordt de
+  expiratietijd ververst naar nu + die maximale duur (sliding
+  expiration). Bij herstart van de server vervallen alle sessies."
   (:import [java.time Instant]))
 
 (def ^:private sessies (atom {}))
@@ -12,30 +13,31 @@
   (seconden) en geeft het token terug."
   [max-seconden username naam]
   (let [token (str (java.util.UUID/randomUUID))]
-    (swap! assoc token {:username username
-                        :naam naam
-                        :verloopt-op (.plusSeconds (Instant/now) (long max-seconden))})
+    (swap! assoc token
+           {:username username
+            :naam naam
+            :max-seconden (long max-seconden)
+            :verloopt-op (.plusSeconds (Instant/now) (long max-seconden))})
     token))
 
 (defn check!
   "Geeft de sessie terug als het token geldig is, anders nil.
-  Bij een geldige actie wordt de expiratietijd ververst
-  (sliding expiration)."
+  Bij een geldige sessie wordt de expiratietijd ververst naar
+  nu + de maximale duur van de sessie."
   [token]
   (when (string? token)
     (let [s (get @sessies token)]
       (cond
         (nil? s) nil
+
+        ;; verlopen: sessie verwijderen en weigeren
         (.isBefore (:verloopt-op s) (Instant/now))
-        (do (swap! dissoc token) nil)          ; verlopen: verwijderen
+        (do (swap! dissoc token) nil)
+
         :else
-        (let [vers (assoc s :verloopt-op (.plusSeconds (Instant/now)
-                                                       (- (.getEpochSecond (:verloopt-op s))
-                                                          (.getEpochSecond (Instant/now)))))]
-          ;; ververs naar nu + resterende tijd? Nee: ververs volledig
-          (let [ververst (assoc s :verloopt-op (.plusSeconds (Instant/now)
-                                                             (:max-seconden s (constantly 0))))]
-            s))))))
+        (do (swap! assoc token
+                   (assoc s :verloopt-op (.plusSeconds (Instant/now) (:max-seconden s))))
+            (get @sessies token))))))
 
 (defn delete!
   "Verwijdert de sessie (uitloggen)."
