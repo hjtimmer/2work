@@ -40,6 +40,12 @@
                   ;; (js->clj :keywordize-keys), zet terug naar strings
                   :onder (into {} (map (fn [[k v]] [(name k) v]) (:onder m)))))))
 
+(defn laad-tabel [naam & [page q]]
+  (stuur {:action "table" :token (:token @state) :name naam
+          :page (or page 1) :q (or q "")}
+         (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
+                        :geselecteerd nil :related nil))))
+
 (declare selecteer-rij)
 
 (defn ga-naar-rij [naam id]
