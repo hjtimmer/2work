@@ -2,10 +2,16 @@
  {;; URL naar de echte SQLite-database (read-only gebruik)
   :database-url "jdbc:sqlite:/pad/naar/2work.db"
 
-  ;; Aparte SQLite-database voor sessies. De sessietabel
-  ;; (viewer_sessie) bewaart per inlog een token met gebruiker,
-  ;; aanmaak- en laatst-gebruikt-tijdstip.
-  :session-database-url "jdbc:sqlite:viewer_sessies.db"
+  ;; Aparte SQLite-database met gebruikers en hun tabelautorisaties.
+  ;; Tabellen: viewer_gebruiker (username, password, naam) en
+  ;; viewer_gebruiker_tabel (username, tabel). Een autorisatie
+  ;; "alle" in viewer_gebruiker_tabel geeft toegang tot alle tabellen.
+  :users-database-url "jdbc:sqlite:viewer_users.db"
+
+  ;; Maximale sessie-expiratietijd in seconden. Bij elke geslaagde
+  ;; database-actie wordt de expiratietijd ververst naar
+  ;; nu + deze waarde.
+  :sessie-max-seconden 1800
 
   ;; Poort waarop de server luistert
   :port 3000
@@ -16,10 +22,11 @@
                 :password "cert-wachtwoord"
                 :alias "tweede-alias"}
 
-  ;; Voorlopig: gebruikers die mogen inloggen, rechtstreeks in de config.
-  ;; Na succesvol inloggen geeft de server een token terug dat in de
-  ;; sessietabel wordt bewaard; de client stuurt dit token mee bij elke
-  ;; websocket-actie. Er wordt GEEN cookie gezet.
-  :users {"henk"  {:password "henk123"  :naam "Henk Timmermans"}
-          "gast"  {:password "gast123"  :naam "Gastgebruiker"}}}}
+  ;; Optioneel: eerste keer vullen van de users-database. Bij de start
+  ;; worden deze gebruikers in viewer_gebruiker gezet als de tabel nog
+  ;; leeg is. Wachtwoorden en autorisaties beheer je daarna in de
+  ;; users-database zelf.
+  :initiele-gebruikers
+  {"henk" {:password "henk123" :naam "Henk Timmermans" :tabellen ["alle"]}
+   "gast" {:password "gast123" :naam "Gastgebruiker" :tabellen ["dossier" "Document"]}}}}
 
