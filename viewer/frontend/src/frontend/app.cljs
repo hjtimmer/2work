@@ -1,29 +1,15 @@
 (ns frontend.app
-  "Reagent + Material UI frontend voor de 2work viewer.
-  Communicatie verloopt volledig via de websocket op /ws met het
-  JSON-protocol zoals beschreven in de README (login met token,
-  tables, table, row, logout)."
   (:require [reagent.core :as r]
             [reagent.dom :as rdom]
             ["@material-ui/core" :as mui]
-            ["@material-ui/icons" :as icons]))
+            ["@material-ui/icons" :as icons]
+            [clojure.string :as str]))
 
-(defonce state (r/atom {:token  nil
-                        :naam   nil
-                        :fout   nil
-                        :tables []
-                        :tabel  nil
-                        :data   nil
-                        :zoek   ""}))
-
+(defonce state (r/atom {:token nil :naam nil :fout nil :tables [] :tabel nil :data nil :zoek ""}))
 (defonce ws (atom nil))
 (defonce wachtend (atom {}))
 
-;; ---------------------------------------------------------------- ws
-
-(defn stuur
-  "Verstuurt een actie en koppelt het antwoord aan een callback via :id."
-  [msg cb]
+(defn stuur [msg cb]
   (let [id (str (js/Math.random))]
     (swap! wachtend assoc id cb)
     (.send @ws (js/JSON.stringify (clj->js (assoc msg :id id))))))
@@ -42,8 +28,6 @@
           (fn [] (when (:token @state)
                    (swap! state assoc :token nil :fout "Verbinding verloren, opnieuw inloggen"))))))
 
-;; ------------------------------------------------------------- api
-
 (defn laad-tabellen []
   (stuur {:action "tables" :token (:token @state)}
          (fn [m] (swap! state assoc :tables (:tables m)))))
@@ -54,12 +38,8 @@
          (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)))))
 
 (defn ga-naar-rij [naam id]
-  ;; naar de doeltabel en daar zoeken op de gekozen waarde in de id-kolom
-  (stuur {:action "table" :token (:token @state) :name naam :page 1
-          :q (str id)}
+  (stuur {:action "table" :token (:token @state) :name naam :page 1 :q (str id)}
          (fn [m] (swap! state assoc :tabel naam :data m :zoek (str id)))))
-
-;; ------------------------------------------------------ componenten
 
 (defn- text-field [label waarde on-change & {:keys [type input-props]}]
   [:> mui/TextField
@@ -96,8 +76,7 @@
           :style {:marginTop 16}
           :on-click
           (fn []
-            (stuur {:action "login"
-                    :username @username :password @password}
+            (stuur {:action "login" :username @username :password @password}
                    (fn [m]
                      (cond
                        (= (:type m) "login-ok")
@@ -110,8 +89,6 @@
 (defn tabellen-view []
   [:> mui/Container {:maxWidth "md" :style {:marginTop 24}}
    [:> mui/Typography {:variant "h5"} (str "Welkom, " (or (:naam @state) ""))]
-   [:> mui/Typography {:variant "body2" :color "textSecondary" :style {:margin "8px 0"}}
-    (str (count (:tables @state)) " tabellen beschikbaar")]
    [:> mui/List
     (for [t (:tables @state)]
       ^{:key t}
@@ -119,7 +96,7 @@
        [:> mui/ListItemIcon [:> icons/TableChart]]
        [:> mui/ListItemText {:primary t}]])]])
 
-(defn- fk-link [tabelnaam kolom waarde]
+(defn- fk-link [kolom waarde]
   (let [lc (clojure.string/lower-case (name kolom))]
     (if (and (clojure.string/ends-with? lc "id") (> (count lc) 2)
              (some #(= (clojure.string/lower-case %)
@@ -161,7 +138,7 @@
                      (for [c columns]
                        [:> mui/TableCell {:key c}
                         (let [v (get row (keyword c))]
-                          (if (nil? v) "—" [fk-link naam c v]))])))))]
+                          (if (nil? v) "-" [fk-link c v]))]))))]]
      [:> mui/TablePagination
       {:component "div"
        :count total
