@@ -39,6 +39,8 @@
          (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
                         :geselecteerd nil :related nil))))
 
+(declare selecteer-rij)
+
 (defn ga-naar-rij [naam id]
   (stuur {:action "table" :token (:token @state) :name naam :page 1 :q (str id)}
          (fn [m]
