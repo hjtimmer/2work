@@ -5,11 +5,12 @@
   Tabellen:
     viewer_gebruiker       (username, password, naam)
     viewer_gebruiker_tabel (username, tabel)   ; rij per toegestane tabel,
-                                               ; of het wildcard "alle"
+                                               ; of het wildcard \"alle\"
   Sessies staan hier NIET in: die worden in het geheugen bijgehouden
   (zie twoview.sessie)."
   (:require [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]))
+            [next.jdbc.result-set :as rs]
+            [clojure.string :as str]))
 
 (defn init!
   "Maakt de gebruikerstabellen aan als ze nog niet bestaan."
@@ -52,7 +53,7 @@
 
 (defn- geautoriseerde-tabellen
   "De set tabellen waar een gebruiker toegang toe heeft; het wildcard
-  "alle" geldt als volledige toegang (geretourneerd als :alle)."
+  \"alle\" geldt als volledige toegang (geretourneerd als :alle)."
   [ds username]
   (let [tabellen (->> (jdbc/execute! ds ["SELECT tabel FROM viewer_gebruiker_tabel
                                            WHERE username = ?" username]
@@ -69,7 +70,8 @@
         bestaand    (twoview.db/list-tables gegevens-ds)]
     (if (= :alle autorisatie)
       bestaand
-      (filter #(contains? (set (map str/lower-case autorisatie)) (str/lower-case %)) bestaand))))
+      (let [aut-set (set (map str/lower-case autorisatie))]
+        (filter #(contains? aut-set (str/lower-case %)) bestaand)))))
 
 (defn mag-tabel?
   "Of de gebruiker deze specifieke tabel mag bekijken."

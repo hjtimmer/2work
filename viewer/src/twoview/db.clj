@@ -3,7 +3,8 @@
   uitgevoerd; tabel- en kolomnamen worden gevalideerd tegen de
   werkelijke database zodat er geen SQL-injectie via identifiers kan."
   (:require [next.jdbc :as jdbc]
-            [next.jdbc.result-set :as rs]))
+            [next.jdbc.result-set :as rs]
+            [clojure.string :as str]))
 
 (defn list-tables
   "Alle gebruikerstabellen (zonder sqlite-internes en zonder views)."
@@ -44,10 +45,9 @@
   (let [cols  (table-columns ds table)
         page  (max 1 (or page 1))
         size  (or page-size 50)
-        where (when (seq q)
-                (str (->> (map #(str "CAST(\"" (:name %) "\" AS TEXT) LIKE ?") cols)
-                          (clojure.string/join " OR "))))
-        params (when (seq q) (repeat (count cols) (str "%" q "%")))
+        where (when (and q (seq q))
+                (str/join " OR " (map #(str "CAST(\"" (:name %) "\" AS TEXT) LIKE ?") cols)))
+        params (when (and q (seq q)) (repeat (count cols) (str "%" q "%")))
         sql    (str "SELECT * FROM \"" table "\" "
                     (when where (str "WHERE " where))
                     " LIMIT ? OFFSET ?")
@@ -59,7 +59,7 @@
      :total (count-rows ds table (when where {:where where :params params}))}))
 
 (defn find-row
-  "Eén rij opzoeken op de primaire sleutel (of een opgegeven kolom)."
+  "Eén rij opzoeken op de (vermoede) primaire sleutel."
   [ds table pk-column id]
   (when (valid-column? ds table pk-column)
     (first (jdbc/execute! ds [(str "SELECT * FROM \"" table "\" WHERE \"" pk-column "\" = ? LIMIT 1") id]
