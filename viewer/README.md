@@ -1,63 +1,61 @@
 # 2work viewer
 
-Read-only client-server viewer voor de 2work SQLite-database, volledig over **websockets**.
+Read-only client-server viewer voor de 2work SQLite-database, volledig over **websockets**, frontend in **Reagent + Material UI**.
 
-## Snel testen met een testdatabase
-Er is een kleine testdatabase met voorbeelddata:
+## Frontend bouwen (eenmalig, daarna bij elke code-wijziging)
+De interface is een ClojureScript SPA met Material UI-componenten, gebouwd met shadow-cljs:
+```bash
+cd viewer/frontend
+npm install
+npx shadow-cljs watch app     # ontwikkel, met hot reload op :8020
+# of voor productie:
+npx shadow-cljs release app
+```
+De gebouwde JS belandt automatisch in `viewer/resources/public/js`, zodat de Clojure-server (poort 3000) hem serveert op `/js/main.js`. Voor development kun je ook `http://localhost:8020` gebruiken (shadow-cljs dev-server op dezelfde resources).
+
+Het inlogscherm heeft een oog-knop om het wachtwoord zichtbaar te maken.
+
+## Configuratie buiten de applicatie
+De configuratie staat in een los `config.edn` dat je naast de applicatie onderhoudt. De server zoekt in deze volgorde:
+1. een pad als argument: `clj -M:run /etc/twoview/config.edn`
+2. `./config.edn` in de werkmap
+3. (noodfallback, met waarschuwing in de log) `resources/config.edn` op het classpath
+
+Voorbeeld: [`viewer/config.edn`](config.edn).
+
+## Users-database (gebruikers + autorisaties)
+Zie [`init_users.sql`](init_users.sql); of start de viewer één keer, dan worden de tabellen automatisch aangemaakt en éénmalig gevuld vanuit `:initiele-gebruikers`. Tabellen:
+- `viewer_gebruiker (username, password, naam)`
+- `viewer_gebruiker_tabel (username, tabel)` — wildcard `"alle"` geeft toegang tot alles.
+
+## Testdatabase
 ```bash
 sqlite3 2work_test.db < init_testdata.sql
 ```
-Zet in `config.edn`: `:database-url "jdbc:sqlite:2work_test.db"` en geef
-`gast` in `init_users.sql` bijvoorbeeld toegang tot `dossier` en
-`Document`. De FK-links in de viewer (kolom eindigt op "id" ->
-klikbare link naar de doeltabel) zijn direct te zien: klik in
-`Document` op een `dossierid` en je springt naar de rij in `dossier`.
-
-## Configuratie buiten de applicatie
-De configuratie staat **niet in de jar/resources** maar in een los `config.edn` dat je naast de applicatie onderhoudt. De server zoekt in deze volgorde:
-1. een pad als argument: `clj -M:run /etc/twoview/config.edn` (of `java -jar viewer.jar /etc/twoview/config.edn`)
-2. `./config.edn` in de werkmap (typisch naast de jar)
-3. (noodfallback, met waarschuwing in de log) `resources/config.edn` op het classpath
-
-In de repo ligt een voorbeeld als [`viewer/config.edn`](config.edn): kopieer het naar de werkmap en pas de paden aan.
-
-## Users-database (gebruikers + autorisaties)
-De tabelstructuur en voorbeelddata staan in [`init_users.sql`](init_users.sql). Twee manieren om een voorbeelddatabase te maken:
-```bash
-sqlite3 viewer_users.db < init_users.sql   # met de SQLite CLI
-```
-of: start de viewer één keer; bij de eerste start worden de tabellen
-automatisch aangemaakt en éénmalig gevuld vanuit `:initiele-gebruikers`
-in de config (alleen als `viewer_gebruiker` nog leeg is).
-
-Tabellen:
-- `viewer_gebruiker (username, password, naam)`
-- `viewer_gebruiker_tabel (username, tabel)` — rij per toegestane tabel; wildcard `"alle"` geeft toegang tot alles.
+En in `config.edn`: `:database-url "jdbc:sqlite:2work_test.db"`.
 
 ## Werking
-- Alle datacommunicatie loopt via een websocket op `/ws` met JSON-berichten; de pagina is een dunne HTML/JS-client.
-- **Geen cookies**. Na inloggen krijgt de client een token; de sessie staat **in het geheugen** van de server (hashmap). Elke sessie heeft een **expiratietijd die bij elke geslaagde database-actie wordt ververst** naar nu + `:sessie-max-seconden` (sliding expiration). Bij een server-herstart vervallen alle sessies.
-- De tabellenlijst per gebruiker is gefilterd op de autorisaties; tabel- en rij-acties worden per request gecontroleerd.
-- Read-only: alleen SELECT-query's; identifiers worden gevalideerd tegen `sqlite_master`.
+- Alle datacommunicatie via websocket `/ws` met JSON-berichten; sessies: in-memory token, expiratie ververst bij elke database-actie (`:sessie-max-seconden`).
+- Geen cookies. Tabellenlijst en -acties zijn gefilterd op de autorisaties van de gebruiker.
+- Read-only: alleen SELECT-query's; identifiers gevalideerd tegen `sqlite_master`.
 
 ## Berichten
 | Client stuurt | Server antwoordt |
 |---|---|
-| `{"action":"login","username":"..","password":".."}` | `{"type":"login-ok","token":"..","naam":".."}` of `login-fout` |
-| `{"action":"tables","token":".."}` | `{"type":"tables","tables":[..]}` (alleen geautoriseerde tabellen) |
+| `{"action":"login","username":"..","password":".."}` | `{"type":"login-ok","token":"..","naam":".."}` |
+| `{"action":"tables","token":".."}` | `{"type":"tables","tables":[..]}` |
 | `{"action":"table","token":"..","name":"..","page":1,"q":""}` | `{"type":"table",...}` |
 | `{"action":"row","token":"..","name":"..","row-id":1}` | `{"type":"row","row":{..}}` |
 | `{"action":"logout","token":".."}` | `{"type":"logout-ok"}` |
 
 ## Draaien
 ```bash
-cd viewer
-clj -M:run                 # gebruikt ./config.edn
-clj -M:run /etc/twoview/config.edn   # of expliciet pad
+cd viewer/frontend && npm install && npx shadow-cljs release app   # frontend
+cd viewer && clj -M:run                                            # server
 ```
-Server op `http://localhost:3000`, websocket op `ws://localhost:3000/ws`.
+Open `http://localhost:3000`.
 
 ## Volgende stappen
 - Wachtwoorden hashen (buddy-hashers) in `viewer_gebruiker`.
-- Verlopen sessies periodiek opruimen (optioneel; verlopen tokens worden bij gebruik al verwijderd).
-- De volledige FK-analyse staat in `fk_afgeleid.md` en `fk_constraints.sql`.
+- Uitloggen-knop in de UI koppelen aan `action: "logout"`.
+- FK-constraints uit `fk_constraints.sql` in de tabeldefinities opnemen.
