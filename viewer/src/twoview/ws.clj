@@ -93,6 +93,13 @@
                :meer (> (count rows) 100)
                :offset (or offset 0)})))
 
+(def ^:private top-entiteiten
+  "Entiteiten die in het menu verschijnen. De overige tabellen zijn
+  bereikbaar via de gerelateerde panelen bij een geselecteerde rij
+  (en via de FK-links in de tabelcellen). Pas deze lijst aan om
+  andere entiteiten aan het menu toe te voegen."
+  ["Document"])
+
 (defn ws-handler [ds users-ds sessie-max]
   (fn [request]
     (http/with-channel request ch
@@ -115,10 +122,11 @@
                       (cond
                         (= action "tables")
                         (let [tabellen (users/tabellen-voor users-ds ds username)
-                              hier (db/fk-hierarchie ds tabellen)]
+                              hier (db/fk-hierarchie ds tabellen)
+                              gekozen (seq (filter (set tabellen) top-entiteiten))]
                           (send! ch {:type "tables" :id (:id msg) :user (:naam s)
                                      :tables tabellen
-                                     :top (:top hier)
+                                     :top (if gekozen (vec gekozen) (:top hier))
                                      :onder (:onder hier)}))
 
                         ;; tabelacties: alleen binnen de autorisatie

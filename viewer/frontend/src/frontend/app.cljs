@@ -145,14 +145,19 @@
        [:> mui/ListItemText {:primary t}]])]])
 
 (defn- fk-link [kolom waarde]
-  (let [lc (clojure.string/lower-case (name kolom))]
-    (if (and (clojure.string/ends-with? lc "id") (> (count lc) 2)
-             (some #(= (clojure.string/lower-case %)
-                       (subs lc 0 (- (count lc) 2)))
-                   (map clojure.string/lower-case (:tables @state))))
+  (let [lc  (str/lower-case (name kolom))
+        id? (and (str/ends-with? lc "id") (> (count lc) 2))
+        ;; zoek de exacte tabelnaam (met juiste hoofdletters) erbij,
+        ;; want de server vergelijkt tabelnamen hoofdlettergevoelig
+        doel (when id?
+               (some #(when (= (str/lower-case %)
+                               (subs lc 0 (- (count lc) 2))))
+                     (:tables @state)))]
+    (if doel
       [:> mui/Link
-       {:href "#" :on-click #(do (.preventDefault %)
-                                 (ga-naar-rij (subs lc 0 (- (count lc) 2)) waarde))
+       {:href "#"
+        :on-click #(do (.preventDefault %)
+                       (ga-naar-rij doel waarde))
         :style {:cursor "pointer"}}
        (str waarde)]
       (str waarde))))
