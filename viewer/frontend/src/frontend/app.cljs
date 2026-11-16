@@ -6,7 +6,7 @@
             [clojure.string :as str]))
 
 (defonce state (r/atom {:token nil :naam nil :fout nil :tables [] :tabel nil
-                        :data nil :zoek "" :geselecteerd nil :related nil}))
+                        :data nil :zoek "" :geselecteerd nil :related nil :relaties-tonen false}))
 (defonce ws (atom nil))
 (defonce wachtend (atom {}))
 
@@ -41,7 +41,32 @@
 
 (defn ga-naar-rij [naam id]
   (stuur {:action "table" :token (:token @state) :name naam :page 1 :q (str id)}
-         (fn [m] (swap! state assoc :tabel naam :data m :zoek (str id)))))
+         (fn [m]
+           (swap! state assoc :tabel naam :data m :zoek (str id)
+                  :geselecteerd nil :related nil)
+           (let [pk (get m :pk)]
+             (when-let [rij (some #(when (= (str (get % (keyword pk))) (str id)) %)
+                                  (get m :rows))]
+               (selecteer-rij naam pk rij))))))
+
+(defn laad-related [naam id]
+  (stuur {:action "related" :token (:token @state) :name naam :row-id id}
+         (fn [m] (swap! state assoc :related m))))
+
+(defn laad-meer [naam id richting tabel kolom vanaf]
+  (stuur {:action "related-meer" :token (:token @state) :name naam :row-id id
+          :tabel tabel :kolom kolom :richting richting :offset vanaf}
+         (fn [m]
+           (swap! state update :related
+                  (fn [rel]
+                    (assoc rel :relaties
+                           (mapv (fn [r]
+                                   (if (and (= (:tabel r) tabel) (= (:kolom r) kolom))
+                                     (assoc r :rows (into (:rows r) (:rows m))
+                                            :meer (:meer m)
+                                            :vanaf (+ vanaf (count (:rows m))))
+                                     r))
+                                 (:relaties rel))))))))
 
 (defn selecteer-rij [naam pk rij]
   (let [id (get rij (keyword pk))]
@@ -49,8 +74,14 @@
       (swap! state assoc :geselecteerd nil :related nil)
       (do
         (swap! state assoc :geselecteerd id :related nil)
-        (stuur {:action "related" :token (:token @state) :name naam :row-id id}
-               (fn [m] (swap! state assoc :related m)))))))
+        (when (:relaties-tonen @state)
+          (laad-related naam id))))))
+
+(defn toggle-relaties [naam]
+  (let [nu (not (:relaties-tonen @state))]
+    (swap! state assoc :relaties-tonen nu)
+    (when (and nu (:geselecteerd @state))
+      (laad-related naam (:geselecteerd @state)))))
 
 (defn- text-field [label waarde on-change & {:keys [type input-props]}]
   [:> mui/TextField
@@ -120,34 +151,35 @@
        (str waarde)]
       (str waarde))))
 
-(defn- mini-tabel [columns rows]
+(defn- mini-tabel [columns rows on-click]
   [:> mui/Table {:size "small"}
-       [:> mui/TableHead
-        (into [:> mui/TableRow]
-              (for [c columns]
+   [:> mui/TableHead
+    (into [:> mui/TableRow]
+          (for [c columns]
                 [:> mui/TableCell {:key c} (str c)]))]
    (into [:> mui/TableBody]
-             (for [row rows]
-               (into [:> mui/TableRow
-                      {:key (hash row)
-                       :hover true
-                       :selected (= (:geselecteerd @state) (get row (keyword pk)))
-                       :on-click #(selecteer-rij naam pk row)}]
-                     (for [c columns]
+         (for [row rows]
+           (into [:> mui/TableRow {:key (hash row) :hover true :on-click #(on-click row)}]
+                 (for [c columns]
                        [:> mui/TableCell {:key c}
                         (let [v (get row (keyword c))]
-                          (if (nil? v) "-" [fk-link c v]))]))))])
+                          (if (nil? v) "-" (str v)))]))))])
 
-(defn- relatie-paneel [{:keys [richting tabel kolom columns rows]}]
+(defn- relatie-paneel [naam sel-id {:keys [richting tabel kolom columns rows pk meer vanaf]}]
   [:> mui/Accordion {:defaultExpanded true}
    [:> mui/AccordionSummary
     {:expand-icon (r/as-element [:> icons/ExpandMore])}
     [:> mui/Typography {:variant "subtitle2"}
      (str tabel " (" (count rows) ")")]]
    [:> mui/AccordionDetails {:style {:padding 0}}
-    [mini-tabel columns rows]]])
+    [mini-tabel columns rows
+     #(ga-naar-rij tabel (str (get % (keyword pk))))]
+    (when meer
+      [:> mui/Button {:size "small" :style {:margin 8}
+                      :on-click #(laad-meer naam sel-id richting tabel kolom vanaf)}
+       "Meer laden"])]])
 
-(defn- gerelateerd-view []
+(defn- gerelateerd-view [naam sel-id]
   (let [related (:related @state)]
     [:div {:style {:marginTop 16}}
      [:> mui/Divider {:style {:marginBottom 8}}]
@@ -161,7 +193,7 @@
        :else
        (for [r (:relaties related)]
          ^{:key (str (:richting r) "-" (:tabel r) "-" (:kolom r))}
-         [relatie-paneel r]))]))
+         [relatie-paneel naam sel-id r]))]))
 
 (defn tabel-view []
   (let [{:keys [columns rows page page-size total pk]} (:data @state)
@@ -180,6 +212,13 @@
       #(do (reset! zoeken %)
            (when (or (empty? %) (> (count %) 1))
              (laad-tabel naam 1 %)))]
+     [:> mui/FormControlLabel
+      {:control (r/as-element
+                 [:> mui/Checkbox
+                  {:checked (boolean (:relaties-tonen @state))
+                   :color "primary"
+                   :on-change #(toggle-relaties naam)}])
+       :label "Gerelateerde tabellen bij geselecteerde rij"}]
      [:> mui/TableContainer {:component mui/Paper}
       [:> mui/Table {:size "small" :stickyHeader true}
        [:> mui/TableHead
@@ -188,7 +227,11 @@
                 [:> mui/TableCell {:key c} (str c)]))]
        (into [:> mui/TableBody]
              (for [row rows]
-               (into [:> mui/TableRow {:key (hash row)}]
+               (into [:> mui/TableRow
+                      {:key (hash row)
+                       :hover true
+                       :selected (= (:geselecteerd @state) (get row (keyword pk)))
+                       :on-click #(selecteer-rij naam pk row)}]
                      (for [c columns]
                        [:> mui/TableCell {:key c}
                         (let [v (get row (keyword c))]
@@ -200,8 +243,8 @@
        :rows-per-page page-size
        :rows-per-page-options [50]
        :on-change-page (fn [_ p] (laad-tabel naam (inc p) @zoeken))}]
-     (when (:geselecteerd @state)
-       [gerelateerd-view])]))
+     (when (and (:relaties-tonen @state) (:geselecteerd @state))
+       [gerelateerd-view naam (:geselecteerd @state)])]))
 
 
 (defn app []

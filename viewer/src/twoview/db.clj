@@ -80,13 +80,14 @@
 
 (defn rijen-met-waarde
   "Rijen uit een tabel waarvan de kolom (tekstueel vergeleken) gelijk
-  is aan de gegeven waarde. Beperkt tot limit (standaard 100) rijen."
-  [ds table column value & [limit]]
+  is aan de gegeven waarde. Beperkt tot limit (standaard 100) rijen,
+  met optionele offset voor vervolgbatches."
+  [ds table column value & [limit offset]]
   (when (valid-column? ds table column)
     (jdbc/execute! ds [(str "SELECT * FROM \"" table "\" "
                             "WHERE CAST(\"" column "\" AS TEXT) = ? "
-                            "LIMIT ?")
-                       (str value) (or limit 100)]
+                            "LIMIT ? OFFSET ?")
+                       (str value) (or limit 100) (or offset 0)]
                    {:builder-fn rs/as-unqualified-maps})))
 
 (defn fk-relaties

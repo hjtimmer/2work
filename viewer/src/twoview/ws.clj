@@ -58,19 +58,40 @@
                              (let [rows (cond
                                           (nil? rij) []
                                           (= richting "van")
-                                          (db/rijen-met-waarde ds tabel kolom pk-val)
+                                          (db/rijen-met-waarde ds tabel kolom pk-val 101 0)
                                           :else
                                           (when-let [v (get rij (keyword kolom))]
-                                            (db/rijen-met-waarde ds tabel (db/pk-kolom ds tabel) v)))]
+                                            (db/rijen-met-waarde ds tabel (db/pk-kolom ds tabel) v 101 0)))
+                                   rijen (vec (take 100 (or rows [])))]
                                {:richting richting :tabel tabel :kolom kolom
+                                :pk (db/pk-kolom ds tabel)
                                 :columns (mapv :name (db/table-columns ds tabel))
-                                :rows (vec (or rows []))}))))]
+                                :rows rijen
+                                :meer (> (count (or rows [])) 100)
+                                :vanaf (count rijen)}))))]
+
     (send! ch {:type "related" :id id :name name
                :rij rij :relaties rels})))
 
 (defn- do-row [ch ds {:keys [name row-id id]}]
   (send! ch {:type "row" :id id :name name
              :row (db/find-row ds name (db/pk-kolom ds name) row-id)}))
+
+(defn- do-related-meer
+  "Vervolgbatch rijen uit een gerelateerde tabel (\"van\"-relatie)
+  bij een geselecteerde rij. Batchgrootte 100."
+  [ch ds {:keys [name row-id tabel kolom offset id]}]
+  (let [pk     (db/pk-kolom ds name)
+        rij    (db/find-row ds name pk row-id)
+        pk-val (get rij (keyword pk))
+        rows   (if (nil? pk-val)
+                 []
+                 (db/rijen-met-waarde ds tabel kolom pk-val 101 (or offset 0)))
+        rijen  (vec (take 100 rows))]
+    (send! ch {:type "related-meer" :id id :tabel tabel :kolom kolom
+               :rows rijen
+               :meer (> (count rows) 100)
+               :offset (or offset 0)})))
 
 (defn ws-handler [ds users-ds sessie-max]
   (fn [request]
@@ -116,6 +137,13 @@
                              (db/table-exists? ds (:name msg))
                              (users/mag-tabel? users-ds username (:name msg)))
                         (do-related ch ds users-ds username msg)
+
+                        (and (= action "related-meer")
+                             (db/table-exists? ds (:name msg))
+                             (db/table-exists? ds (:tabel msg))
+                             (users/mag-tabel? users-ds username (:name msg))
+                             (users/mag-tabel? users-ds username (:tabel msg)))
+                        (do-related-meer ch ds msg)
 
                         (= action "logout")
                         (do (sessie/delete! (:token msg))
