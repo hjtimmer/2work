@@ -131,27 +131,18 @@
                        (swap! state assoc :fout (:melding m))))))}
          "Inloggen"]]])))
 
-(defn- tabel-item [t pad]
-  (let [kids (vec (remove (set pad) (get (:onder @state) t)))]
-    [:div
-     [:> mui/ListItem {:button true :on-click #(laad-tabel t)}
-      [:> mui/ListItemIcon [:> icons/TableChart]]
-      [:> mui/ListItemText {:primary t}]]
-     (when (seq kids)
-       (into [:> mui/List {:component "div" :disablePadding true
-                           :style {:paddingLeft 24}}]
-             (for [k kids]
-               ^{:key k}
-               [tabel-item k (conj pad t)])))]))
-
 (defn tabellen-view []
   [:> mui/Container {:maxWidth "md" :style {:marginTop 24}}
    [:> mui/Typography {:variant "h5"}
     (str "Welkom, " (or (:naam @state) ""))]
-   (into [:> mui/List]
-         (for [t (:top @state)]
-           ^{:key t}
-           [tabel-item t #{t}]))])
+   ;; alleen de top-entiteiten; de overige tabellen zijn
+   ;; bereikbaar via de gerelateerde panelen bij een geselecteerde rij
+   [:> mui/List
+    (for [t (:top @state)]
+      ^{:key t}
+      [:> mui/ListItem {:button true :on-click #(laad-tabel t)}
+       [:> mui/ListItemIcon [:> icons/TableChart]]
+       [:> mui/ListItemText {:primary t}]])]])
 
 (defn- fk-link [kolom waarde]
   (let [lc (clojure.string/lower-case (name kolom))]
