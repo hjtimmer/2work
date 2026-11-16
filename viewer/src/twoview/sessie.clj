@@ -13,7 +13,7 @@
   (seconden) en geeft het token terug."
   [max-seconden username naam]
   (let [token (str (java.util.UUID/randomUUID))]
-    (swap! assoc token
+    (swap! sessies assoc token
            {:username username
             :naam naam
             :max-seconden (long max-seconden)
@@ -32,15 +32,15 @@
 
         ;; verlopen: sessie verwijderen en weigeren
         (.isBefore (:verloopt-op s) (Instant/now))
-        (do (swap! dissoc token) nil)
+        (do (swap! sessies dissoc token) nil)
 
         :else
-        (do (swap! assoc token
+        (do (swap! sessies assoc token
                    (assoc s :verloopt-op (.plusSeconds (Instant/now) (:max-seconden s))))
             (get @sessies token))))))
 
 (defn delete!
   "Verwijdert de sessie (uitloggen)."
   [token]
-  (swap! dissoc token)
+  (swap! sessies dissoc token)
   nil)
