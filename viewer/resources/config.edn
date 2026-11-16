@@ -1,6 +1,11 @@
 {:viewer
- {;; URL naar de echte SQLite-database (pas dit pad aan naar jouw locatie)
+ {;; URL naar de echte SQLite-database (read-only gebruik)
   :database-url "jdbc:sqlite:/pad/naar/2work.db"
+
+  ;; Aparte SQLite-database voor sessies. De sessietabel
+  ;; (viewer_sessie) bewaart per inlog een token met gebruiker,
+  ;; aanmaak- en laatst-gebruikt-tijdstip.
+  :session-database-url "jdbc:sqlite:viewer_sessies.db"
 
   ;; Poort waarop de server luistert
   :port 3000
@@ -12,9 +17,9 @@
                 :alias "tweede-alias"}
 
   ;; Voorlopig: gebruikers die mogen inloggen, rechtstreeks in de config.
-  ;; Let op: wachtwoorden staan hier in leesbare tekst. Vervang dit later
-  ;; door gehashte wachtwoorden (bijv. buddy-hashers) of een echte
-  ;; gebruikerstabel uit de database.
+  ;; Na succesvol inloggen geeft de server een token terug dat in de
+  ;; sessietabel wordt bewaard; de client stuurt dit token mee bij elke
+  ;; websocket-actie. Er wordt GEEN cookie gezet.
   :users {"henk"  {:password "henk123"  :naam "Henk Timmermans"}
           "gast"  {:password "gast123"  :naam "Gastgebruiker"}}}}
 

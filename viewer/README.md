@@ -1,32 +1,35 @@
 # 2work viewer
 
-Read-only client-server viewer voor de 2work SQLite-database.
+Read-only client-server viewer voor de 2work SQLite-database, volledig over **websockets**.
 
-## Features
-- Inlogscherm; gebruikers staan voorlopig in `config.edn` (zie `resources/config.edn`).
-- Overzicht van alle tabellen in de database.
-- Tabelweergave met paginering (50 rijen) en zoeken in alle kolommen.
-- Kolommen die eindigen op `id` worden als verwijzing getoond (link naar de rij in de doeltabel), volgens dezelfde conventie als in `fk_afgeleid.md`.
-- Read-only: de applicatie voert uitsluitend SELECT-query's uit; tabel- en kolomnamen worden gevalideerd tegen de database.
+## Werking
+- De pagina (`/`) is een dun HTML/JS-schil; álle datacommunicatie loopt via een websocket op `/ws` met JSON-berichten.
+- **Geen cookies**: na inloggen (`action: "login"`) maakt de server een uniek token aan dat wordt bewaard in de **sessietabel** `viewer_sessie` in een aparte sessie-database (`:session-database-url`). De client stuurt dit token mee bij elke actie; de server controleert het telkens tegen de tabel.
+- Tabel- en rijweergave, paginering (50 rijen) en zoeken in alle kolommen via `action: "table"`. Id-kolommen die voldoen aan de `<Tabel>id`-conventie (zie `fk_afgeleid.md`) zijn klikbare links.
+- Read-only: alleen SELECT-query's; identifiers worden gevalideerd tegen `sqlite_master`.
+
+## Berichten
+| Client stuurt | Server antwoordt |
+|---|---|
+| `{"action":"login","username":"..","password":".."}` | `{"type":"login-ok","token":"..","naam":".."}` of `login-fout` |
+| `{"action":"tables","token":".."}` | `{"type":"tables","tables":[..]}` |
+| `{"action":"table","token":"..","name":"..","page":1,"q":""}` | `{"type":"table","columns":[..],"rows":[..],"page":..,"total":..}` |
+| `{"action":"row","token":"..","name":"..","row-id":1}` | `{"type":"row","row":{..}}` |
+| `{"action":"logout","token":".."}` | `{"type":"logout-ok"}` (token uit sessietabel verwijderd) |
 
 ## Configuratie (`resources/config.edn`)
-- `:database-url`: JDBC-URL naar de echte database, bijv. `"jdbc:sqlite:/pad/naar/2work.db"`.
+- `:database-url`: JDBC-URL naar de echte database.
+- `:session-database-url`: aparte SQLite-database met de sessietabel (zo blijft de gegevens-database read-only).
 - `:certificaat`: username, password en alias, gereserveerd voor certificaat-/keystore-configuratie.
-- `:users`: gebruikers die mogen inloggen (naam, wachtwoord, weergavenaam). Zet later gehashte wachtwoorden neer of gebruik een gebruikerstabel.
+- `:users`: tijdelijke inloggegevens; vervang later door gehashte wachtwoorden of een gebruikerstabel.
 
 ## Draaien
 ```bash
 clj -M:run
 ```
-of gebouwd: `clj -M -m twoview.core`. De server start op `http://localhost:3000`.
-
-## Structuur
-- `src/twoview/core.clj`: startpunt, leest config, start Jetty.
-- `src/twoview/handler.clj`: routes, sessies, login.
-- `src/twoview/db.clj`: read-only SQL-toegang met validatie.
-- `src/twoview/views.clj`: Hiccup-HTML (inlogscherm, tabellen, rijen).
+Server op `http://localhost:3000`, websocket op `ws://localhost:3000/ws`.
 
 ## Volgende stappen
-- Wachtwoorden hashen (buddy-hashers) of inloggegevens uit de database halen.
-- Kolomnamen uit `ApplicatieTabelKolom` gebruiken als leesbare opschriften.
-- De afgeleide relaties uit `fk_constraints.sql` in de tabellen opnemen als echte FOREIGN KEY-clausules.
+- Tokenverloop opruimen (op basis van `laatst_gebruikt` in de sessietabel).
+- Wachtwoorden hashen (buddy-hashers).
+- FK-constraints uit `fk_constraints.sql` in de tabeldefinities opnemen.
