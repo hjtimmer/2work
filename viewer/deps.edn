@@ -1,7 +1,7 @@
 {:deps
  {org.clojure/clojure {:mvn/version "1.11.3"}
   ring/ring-core {:mvn/version "1.12.2"}
-  org.httpkit/org.httpkit {:mvn/version "2.8.0"}
+  org.httpkit/http-kit {:mvn/version "2.8.0"}
   seancorfield/next.jdbc {:mvn/version "1.3.939"}
   org.xerial/sqlite-jdbc {:mvn/version "3.46.1.0"}
   cheshire/cheshire {:mvn/version "5.13.0"}}
