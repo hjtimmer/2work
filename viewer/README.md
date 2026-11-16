@@ -2,6 +2,14 @@
 
 Read-only client-server viewer voor de 2work SQLite-database, volledig over **websockets**.
 
+## Configuratie buiten de applicatie
+De configuratie staat **niet in de jar/resources** maar in een los `config.edn` dat je naast de applicatie onderhoudt. De server zoekt in deze volgorde:
+1. een pad als argument: `clj -M:run /etc/twoview/config.edn` (of `java -jar viewer.jar /etc/twoview/config.edn`)
+2. `./config.edn` in de werkmap (typisch naast de jar)
+3. (noodfallback, met waarschuwing in de log) `resources/config.edn` op het classpath
+
+In de repo ligt een voorbeeld als [`viewer/config.edn`](config.edn): kopieer het naar de werkmap en pas de paden aan.
+
 ## Werking
 - Alle datacommunicatie loopt via een websocket op `/ws` met JSON-berichten; de pagina is een dunne HTML/JS-client.
 - **Geen cookies**. Na inloggen krijgt de client een token; de sessie staat **in het geheugen** van de server (hashmap). Elke sessie heeft een **expiratietijd die bij elke geslaagde database-actie wordt ververst** naar nu + `:sessie-max-seconden` (sliding expiration). Bij een server-herstart vervallen alle sessies.
@@ -21,7 +29,7 @@ Read-only client-server viewer voor de 2work SQLite-database, volledig over **we
 | `{"action":"row","token":"..","name":"..","row-id":1}` | `{"type":"row","row":{..}}` |
 | `{"action":"logout","token":".."}` | `{"type":"logout-ok"}` |
 
-## Configuratie (`resources/config.edn`)
+## Config (config.edn)
 - `:database-url`: JDBC-URL naar de echte database.
 - `:users-database-url`: SQLite-database met gebruikers en tabelautorisaties.
 - `:sessie-max-seconden`: maximale sessieduur (seconden); ververst bij elke database-actie.
@@ -30,7 +38,10 @@ Read-only client-server viewer voor de 2work SQLite-database, volledig over **we
 
 ## Draaien
 ```bash
-clj -M:run
+cd viewer
+cp config.edn ./   # staat al in de werkmap
+clj -M:run                 # gebruikt ./config.edn
+clj -M:run /etc/twoview/config.edn   # of expliciet pad
 ```
 Server op `http://localhost:3000`, websocket op `ws://localhost:3000/ws`.
 
