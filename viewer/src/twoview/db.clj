@@ -20,9 +20,12 @@
   (->> (list-tables ds) (some #(= % table)) boolean))
 
 (defn table-columns
-  "Kolommen van een tabel, zoals sqlite die kent: name, type, pk."
+  "Kolommen van een tabel: name, type, pk.
+  Merk op: via pragma_table_info als tabel-functie, want een directe
+  PRAGMA-opdracht ondersteunt geen bind-parameters via JDBC."
   [ds table]
-  (jdbc/execute! ds ["PRAGMA table_info (?)" table]
+  (jdbc/execute! ds ["SELECT name, type, pk FROM pragma_table_info(?)"
+                     table]
                  {:builder-fn rs/as-unqualified-maps}))
 
 (defn- valid-column? [ds table column]
