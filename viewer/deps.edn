@@ -1,4 +1,6 @@
-{:mvn/repos
+{:paths ["src" "resources"]
+
+ :mvn/repos
  {"clojars" {:url "https://repo.clojars.org/"}}
 
  :deps
