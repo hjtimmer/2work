@@ -8,7 +8,8 @@
             [next.jdbc :as jdbc]
             [org.httpkit.server :as http]
             [twoview.ws :as ws]
-            [twoview.users :as users]))
+            [twoview.users :as users]
+            [clojure.string :as str]))
 
 (defn- read-edn [bron]
   (cond
@@ -41,11 +42,13 @@
    ".js"   "application/javascript; charset=utf-8"
    ".css"  "text/css"})
 
+(defn- extensie [uri]
+  (or (re-find #"[.][^.]+$" uri) ""))
+
 (defn- static-response [uri]
   (if-let [res (io/resource (str "public" uri))]
     {:status 200
-     :headers {"Content-Type" (get content-types
-                                   (re-find #\.[^.]+$" uri)
+     :headers {"Content-Type" (get content-types (extensie uri)
                                    "application/octet-stream")}
      :body (slurp res)}
     {:status 404 :body "Niet gevonden"}))
@@ -75,6 +78,6 @@
         (cond
           (:websocket? req) ((ws/ws-handler ds users-ds sessie-max) req)
           (= "/" (:uri req)) (index-response)
-          (clojure.string/starts-with? (:uri req) "/js/") (static-response (:uri req))
+          (str/starts-with? (:uri req) "/js/") (static-response (:uri req))
           :else {:status 404 :body "Niet gevonden"}))
       {:port port})))
