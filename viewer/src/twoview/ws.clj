@@ -21,7 +21,7 @@
                :melding "Onjuiste gebruikersnaam of wachtwoord"})))
 
 (defn- do-table [ch ds {:keys [name page q id]}]
-  (let [result (db/select-rows ds name {:page page :q q :page-size 50})]
+  (let [result (db/select-rows ds name {:page page :q q :page-size 20})]
     (send! ch {:type "table" :id id :name name
                :columns (mapv :name (db/table-columns ds name))
                :pk (db/pk-kolom ds name)
@@ -114,8 +114,12 @@
                     (let [username (:username s)]
                       (cond
                         (= action "tables")
-                        (send! ch {:type "tables" :id (:id msg) :user (:naam s)
-                                   :tables (users/tabellen-voor users-ds ds username)})
+                        (let [tabellen (users/tabellen-voor users-ds ds username)
+                              hier (db/fk-hierarchie ds tabellen)]
+                          (send! ch {:type "tables" :id (:id msg) :user (:naam s)
+                                     :tables tabellen
+                                     :top (:top hier)
+                                     :onder (:onder hier)}))
 
                         ;; tabelacties: alleen binnen de autorisatie
                         (and (= action "table")

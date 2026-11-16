@@ -90,6 +90,42 @@
                        (str value) (or limit 100) (or offset 0)]
                    {:builder-fn rs/as-unqualified-maps})))
 
+(defn fk-hierarchie
+  "Menuhiërarchie voor de tabellenlijst. Bovenliggende (top-)entiteiten
+  zijn tabellen waarnaar door andere tabellen verwezen wordt (via de
+  kolomnaamconventie), of tabellen zonder uitgaande verwijzingen.
+  Alle overige tabellen (puur detail: ze verwijzen zelf ergens naar
+  en niemand verwijst naar hen) komen onder de tabellen die ze
+  verwijzen. Kolommen worden hier eenmalig per tabel opgehaald om
+  niet per tabel opnieuw het hele schema te scannen."
+  [ds tabellen]
+  (let [tabellen  (vec (sort tabellen))
+        lc->tabel  (zipmap (map str/lower-case tabellen) tabellen)
+        kolommen   (zipmap tabellen
+                              (map (fn [t] (mapv :name (table-columns ds t)))
+                                   tabellen))
+        ouders-van (fn [t]
+                     (let [eigen (str (str/lower-case t) "id")]
+                       (distinct
+                        (keep (fn [c]
+                                (let [lc (str/lower-case c)]
+                                  (when (and (str/ends-with? lc "id")
+                                             (> (count lc) 2)
+                                             (not= lc eigen))
+                                    (get lc->tabel
+                                         (subs lc 0 (- (count lc) 2))))))
+                              (get kolommen t)))))
+        onder (reduce (fn [m t]
+                       (reduce (fn [m p] (update m p (fnil conj []) t))
+                               m
+                               (ouders-van t)))
+                     {}
+                     tabellen)
+        top (filter (fn [t] (or (seq (get onder t))
+                                 (empty? (ouders-van t))))
+                    tabellen)]
+    {:top (vec top) :onder onder}))
+
 (defn fk-relaties
   "Relaties van een tabel, afgeleid uit kolomnamen (het schema bevat
   geen expliciete FK-constraints; zie fk_afgeleid.md in de repo-root).

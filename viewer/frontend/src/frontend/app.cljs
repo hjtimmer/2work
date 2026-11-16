@@ -6,7 +6,8 @@
             [clojure.string :as str]))
 
 (defonce state (r/atom {:token nil :naam nil :fout nil :tables [] :tabel nil
-                        :data nil :zoek "" :geselecteerd nil :related nil :relaties-tonen false}))
+                        :data nil :zoek "" :geselecteerd nil :related nil :relaties-tonen false
+                        :top [] :onder {}}))
 (defonce ws (atom nil))
 (defonce wachtend (atom {}))
 
@@ -31,13 +32,13 @@
 
 (defn laad-tabellen []
   (stuur {:action "tables" :token (:token @state)}
-         (fn [m] (swap! state assoc :tables (:tables m)))))
-
-(defn laad-tabel [naam & [page q]]
-  (stuur {:action "table" :token (:token @state) :name naam
-          :page (or page 1) :q (or q "")}
-         (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
-                        :geselecteerd nil :related nil))))
+         (fn [m]
+           (swap! state assoc
+                  :tables (:tables m)
+                  :top (or (:top m) (:tables m))
+                  ;; onderliggende keys komen als keywords binnen
+                  ;; (js->clj :keywordize-keys), zet terug naar strings
+                  :onder (into {} (map (fn [[k v]] [(name k) v]) (:onder m)))))))
 
 (declare selecteer-rij)
 
@@ -130,15 +131,27 @@
                        (swap! state assoc :fout (:melding m))))))}
          "Inloggen"]]])))
 
+(defn- tabel-item [t pad]
+  (let [kids (vec (remove (set pad) (get (:onder @state) t)))]
+    [:div
+     [:> mui/ListItem {:button true :on-click #(laad-tabel t)}
+      [:> mui/ListItemIcon [:> icons/TableChart]]
+      [:> mui/ListItemText {:primary t}]]
+     (when (seq kids)
+       (into [:> mui/List {:component "div" :disablePadding true
+                           :style {:paddingLeft 24}}]
+             (for [k kids]
+               ^{:key k}
+               [tabel-item k (conj pad t)])))]))
+
 (defn tabellen-view []
   [:> mui/Container {:maxWidth "md" :style {:marginTop 24}}
-   [:> mui/Typography {:variant "h5"} (str "Welkom, " (or (:naam @state) ""))]
-   [:> mui/List
-    (for [t (:tables @state)]
-      ^{:key t}
-      [:> mui/ListItem {:button true :on-click #(laad-tabel t)}
-       [:> mui/ListItemIcon [:> icons/TableChart]]
-       [:> mui/ListItemText {:primary t}]])]])
+   [:> mui/Typography {:variant "h5"}
+    (str "Welkom, " (or (:naam @state) ""))]
+   (into [:> mui/List]
+         (for [t (:top @state)]
+           ^{:key t}
+           [tabel-item t #{t}]))])
 
 (defn- fk-link [kolom waarde]
   (let [lc (clojure.string/lower-case (name kolom))]
@@ -210,10 +223,18 @@
       [:> mui/Typography {:color "textPrimary"} naam]]
      [:> mui/Typography {:variant "h5" :gutterBottom true}
       (str naam " (" total " rijen)")]
-     [text-field "Zoeken in alle kolommen" zoeken
-      #(do (reset! zoeken %)
-           (when (or (empty? %) (> (count %) 1))
-             (laad-tabel naam 1 %)))]
+     [:div {:style {:display "flex" :alignItems "flex-start" :marginTop 8}}
+      [:> mui/TextField {:label "Zoeken in alle kolommen"
+                         :value @zoeken
+                         :margin "normal"
+                         :style {:flex 1}
+                         :on-change #(reset! zoeken (.. % -target -value))
+                         :on-key-down #(when (= (.-key %) "Enter")
+                                         (laad-tabel naam 1 @zoeken))}]
+      [:> mui/Button {:variant "contained" :color "primary"
+                      :style {:margin "16px 8px 0 8px"}
+                      :on-click #(laad-tabel naam 1 @zoeken)}
+       "Zoeken"]]
      [:> mui/FormControlLabel
       {:control (r/as-element
                  [:> mui/Checkbox
@@ -243,7 +264,7 @@
        :count total
        :page (dec page)
        :rows-per-page page-size
-       :rows-per-page-options [50]
+       :rows-per-page-options [20]
        :on-change-page (fn [_ p] (laad-tabel naam (inc p) @zoeken))}]
      (when (and (:relaties-tonen @state) (:geselecteerd @state))
        [gerelateerd-view naam (:geselecteerd @state)])]))
