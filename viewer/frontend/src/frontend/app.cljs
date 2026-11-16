@@ -4,7 +4,7 @@
   JSON-protocol zoals beschreven in de README (login met token,
   tables, table, row, logout)."
   (:require [reagent.core :as r]
-            [reagent.dom.client :as rdc]
+            [reagent.dom :as rdom]
             ["@material-ui/core" :as mui]
             ["@material-ui/icons" :as icons]))
 
@@ -12,8 +12,8 @@
                         :naam   nil
                         :fout   nil
                         :tables []
-                        :tabel  nil        ;; huidige tabelnaam
-                        :data   nil        ;; laatste table-resultaat
+                        :tabel  nil
+                        :data   nil
                         :zoek   ""}))
 
 (defonce ws (atom nil))
@@ -179,4 +179,4 @@
 
 (defn init []
   (verbind)
-  (rdc/render [app] (js/document.getElementById "app")))
+  (rdom/render [app] (js/document.getElementById "app")))
