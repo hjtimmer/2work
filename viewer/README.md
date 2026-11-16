@@ -2,6 +2,17 @@
 
 Read-only client-server viewer voor de 2work SQLite-database, volledig over **websockets**.
 
+## Snel testen met een testdatabase
+Er is een kleine testdatabase met voorbeelddata:
+```bash
+sqlite3 2work_test.db < init_testdata.sql
+```
+Zet in `config.edn`: `:database-url "jdbc:sqlite:2work_test.db"` en geef
+`gast` in `init_users.sql` bijvoorbeeld toegang tot `dossier` en
+`Document`. De FK-links in de viewer (kolom eindigt op "id" ->
+klikbare link naar de doeltabel) zijn direct te zien: klik in
+`Document` op een `dossierid` en je springt naar de rij in `dossier`.
+
 ## Configuratie buiten de applicatie
 De configuratie staat **niet in de jar/resources** maar in een los `config.edn` dat je naast de applicatie onderhoudt. De server zoekt in deze volgorde:
 1. een pad als argument: `clj -M:run /etc/twoview/config.edn` (of `java -jar viewer.jar /etc/twoview/config.edn`)
@@ -49,4 +60,4 @@ Server op `http://localhost:3000`, websocket op `ws://localhost:3000/ws`.
 ## Volgende stappen
 - Wachtwoorden hashen (buddy-hashers) in `viewer_gebruiker`.
 - Verlopen sessies periodiek opruimen (optioneel; verlopen tokens worden bij gebruik al verwijderd).
-- FK-constraints uit `fk_constraints.sql` in de tabeldefinities opnemen.
+- De volledige FK-analyse staat in `fk_afgeleid.md` en `fk_constraints.sql`.
