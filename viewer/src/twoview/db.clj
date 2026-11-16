@@ -28,6 +28,16 @@
                      table]
                  {:builder-fn rs/as-unqualified-maps}))
 
+(defn pk-kolom
+  "Primaire-sleutelkolom van een tabel: de kolom met de pk-vlag uit
+  pragma_table_info, anders de kolom <tabel>id, anders de eerste kolom."
+  [ds table]
+  (let [cols (table-columns ds table)]
+    (or (some #(when (pos? (long (or (:pk %) 0))) (:name %)) cols)
+        (some #(when (= (str/lower-case (:name %))
+                        (str (str/lower-case table) "id"))
+                 (:name %)) cols)
+        (:name (first cols)))))
 (defn- valid-column? [ds table column]
   (->> (table-columns ds table)
        (some #(= column (:name %)))
@@ -67,3 +77,43 @@
   (when (valid-column? ds table pk-column)
     (first (jdbc/execute! ds [(str "SELECT * FROM \"" table "\" WHERE \"" pk-column "\" = ? LIMIT 1") id]
                          {:builder-fn rs/as-unqualified-maps}))))
+
+(defn rijen-met-waarde
+  "Rijen uit een tabel waarvan de kolom (tekstueel vergeleken) gelijk
+  is aan de gegeven waarde. Beperkt tot limit (standaard 100) rijen."
+  [ds table column value & [limit]]
+  (when (valid-column? ds table column)
+    (jdbc/execute! ds [(str "SELECT * FROM \"" table "\" "
+                            "WHERE CAST(\"" column "\" AS TEXT) = ? "
+                            "LIMIT ?")
+                       (str value) (or limit 100)]
+                   {:builder-fn rs/as-unqualified-maps})))
+
+(defn fk-relaties
+  "Relaties van een tabel, afgeleid uit kolomnamen (het schema bevat
+  geen expliciete FK-constraints; zie fk_afgeleid.md in de repo-root).
+  Een kolom <tabel>id in deze tabel verwijst naar de tabel <tabel>
+  (richting \"naar\"); een andere tabel met een kolom <deze-tabel>id
+  verwijst naar deze tabel (richting \"van\")."
+  [ds table]
+  (let [tabellen (list-tables ds)
+        lc->tabel (zipmap (map str/lower-case tabellen) tabellen)
+        kolommen (mapv :name (table-columns ds table))
+        eigen-pk (str (str/lower-case table) "id")
+        uitgaand (keep (fn [c]
+                         (let [lc (str/lower-case c)]
+                           (when (and (str/ends-with? lc "id")
+                                      (> (count lc) 2)
+                                      (not= lc eigen-pk))
+                             (when-let [t (get lc->tabel (subs lc 0 (- (count lc) 2)))]
+                               {:richting "naar" :tabel t :kolom c}))))
+                       kolommen)
+        inkomend (mapcat (fn [t]
+                           (let [fk (str (str/lower-case table) "id")]
+                             (when-not (= t table)
+                               (keep (fn [c]
+                                       (when (= (str/lower-case c) fk)
+                                         {:richting "van" :tabel t :kolom c}))
+                                     (mapv :name (table-columns ds t))))))
+                         tabellen)]
+    (concat uitgaand inkomend)))

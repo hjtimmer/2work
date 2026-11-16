@@ -12,11 +12,6 @@
 
 (defn- send! [ch m] (http/send! ch (json/generate-string m)))
 
-(defn- pk-column [ds table]
-  (let [cols (mapv :name (db/table-columns ds table))]
-    (or (some #(when (= (str/lower-case (str %)) (str (str/lower-case table) "id")) %) cols)
-        (first cols))))
-
 (defn- do-login [ch users-ds sessie-max {:keys [username password id]}]
   (if-let [user (users/check-login users-ds username password)]
     (send! ch {:type "login-ok" :id id
@@ -29,15 +24,53 @@
   (let [result (db/select-rows ds name {:page page :q q :page-size 50})]
     (send! ch {:type "table" :id id :name name
                :columns (mapv :name (db/table-columns ds name))
+               :pk (db/pk-kolom ds name)
                :rows (:rows result)
                :page (:page result)
                :page-size (:page-size result)
                :total (:total result)
                :q q})))
 
+(defn- do-relaties
+  "De aan een tabel gerelateerde tabellen (afgeleid uit kolomnamen,
+  zoals beschreven in fk_afgeleid.md), gefilterd op de autorisatie
+  van de gebruiker. Geeft ook de pk-kolom mee."
+  [ch ds users-ds username {:keys [name id]}]
+  (let [toegestaan (set (users/tabellen-voor users-ds ds username))]
+    (send! ch {:type "relaties" :id id :name name
+               :pk (db/pk-kolom ds name)
+               :relaties (vec (filter #(contains? toegestaan (:tabel %))
+                                      (db/fk-relaties ds name)))})))
+
+(defn- do-related
+  "Rijen van de gerelateerde tabellen horend bij een geselecteerde rij.
+  richting \"van\":  rijen in de andere tabel waarvan de fk-kolom de
+  pk-waarde van de geselecteerde rij bevat.
+  richting \"naar\": de rij in de doeltabel die bij de kolomwaarde hoort."
+  [ch ds users-ds username {:keys [name row-id id]}]
+  (let [toegestaan (set (users/tabellen-voor users-ds ds username))
+        pk      (db/pk-kolom ds name)
+        rij     (db/find-row ds name pk row-id)
+        pk-val  (get rij (keyword pk))
+        rels    (->> (db/fk-relaties ds name)
+                     (filter #(contains? toegestaan (:tabel %)))
+                     (mapv (fn [{:keys [richting tabel kolom]}]
+                             (let [rows (cond
+                                          (nil? rij) []
+                                          (= richting "van")
+                                          (db/rijen-met-waarde ds tabel kolom pk-val)
+                                          :else
+                                          (when-let [v (get rij (keyword kolom))]
+                                            (db/rijen-met-waarde ds tabel (db/pk-kolom ds tabel) v)))]
+                               {:richting richting :tabel tabel :kolom kolom
+                                :columns (mapv :name (db/table-columns ds tabel))
+                                :rows (vec (or rows []))}))))]
+    (send! ch {:type "related" :id id :name name
+               :rij rij :relaties rels})))
+
 (defn- do-row [ch ds {:keys [name row-id id]}]
   (send! ch {:type "row" :id id :name name
-             :row (db/find-row ds name (pk-column ds name) row-id)}))
+             :row (db/find-row ds name (db/pk-kolom ds name) row-id)}))
 
 (defn ws-handler [ds users-ds sessie-max]
   (fn [request]
@@ -73,6 +106,16 @@
                              (db/table-exists? ds (:name msg))
                              (users/mag-tabel? users-ds username (:name msg)))
                         (do-row ch ds msg)
+
+                        (and (= action "relaties")
+                             (db/table-exists? ds (:name msg))
+                             (users/mag-tabel? users-ds username (:name msg)))
+                        (do-relaties ch ds users-ds username msg)
+
+                        (and (= action "related")
+                             (db/table-exists? ds (:name msg))
+                             (users/mag-tabel? users-ds username (:name msg)))
+                        (do-related ch ds users-ds username msg)
 
                         (= action "logout")
                         (do (sessie/delete! (:token msg))
