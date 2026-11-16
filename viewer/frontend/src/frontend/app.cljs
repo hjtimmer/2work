@@ -84,7 +84,7 @@
                            (laad-tabellen))
                        :else
                        (swap! state assoc :fout (:melding m))))))}
-         "Inloggen"]]]])))
+         "Inloggen"]]])))
 
 (defn tabellen-view []
   [:> mui/Container {:maxWidth "md" :style {:marginTop 24}}
