@@ -1,0 +1,20 @@
+{:viewer
+ {;; URL naar de echte SQLite-database (pas dit pad aan naar jouw locatie)
+  :database-url "jdbc:sqlite:/pad/naar/2work.db"
+
+  ;; Poort waarop de server luistert
+  :port 3000
+
+  ;; Certificaat-instellingen (voorlopig gereserveerd; bijv. voor een
+  ;; keystore met client-certificaten of TLS-configuratie)
+  :certificaat {:username "cert-gebruiker"
+                :password "cert-wachtwoord"
+                :alias "tweede-alias"}
+
+  ;; Voorlopig: gebruikers die mogen inloggen, rechtstreeks in de config.
+  ;; Let op: wachtwoorden staan hier in leesbare tekst. Vervang dit later
+  ;; door gehashte wachtwoorden (bijv. buddy-hashers) of een echte
+  ;; gebruikerstabel uit de database.
+  :users {"henk"  {:password "henk123"  :naam "Henk Timmermans"}
+          "gast"  {:password "gast123"  :naam "Gastgebruiker"}}}}
+
