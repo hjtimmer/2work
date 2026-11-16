@@ -63,7 +63,8 @@
                              :q q})}))
 
 (defn app
-  "Bouwt de complete Ring-applicatie."
+  "Bouwt de complete Ring-applicatie. wrap-user geldt router-breed,
+  require-login beveiligt de tabelroutes."
   [ds users]
   (reitit-ring/ring-handler
     (reitit-ring/router
@@ -90,5 +91,6 @@
                     {:status 404 :body "Onbekende tabel"}
                     (if id
                       (focus-page ds (:user req) table id)
-                      (browse-page ds (:user req) table q page)))))}]])
+                      (browse-page ds (:user req) table q page)))))}]]
+      {:data {:middleware [wrap-user]}})
     (reitit-ring/create-default-handler)))
