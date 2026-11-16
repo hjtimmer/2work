@@ -82,4 +82,4 @@
                         (send! ch {:type "fout" :id (:id msg)
                                    :melding (str "Onbekende actie of geen toegang: " action)})))
                     (send! ch {:type "fout" :id (:id msg)
-                               :melding "Niet ingelogd of sessie verlopen"}))))))))))))
+                               :melding "Niet ingelogd of sessie verlopen"})))))))))))
