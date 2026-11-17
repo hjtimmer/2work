@@ -43,6 +43,52 @@
        (some #(= column (:name %)))
        boolean))
 
+(defn- kolom-type
+  "SQL-type van een kolom (kleine letters), of een lege string."
+  [ds table kolom]
+  (->> (table-columns ds table)
+       (some #(when (= kolom (:name %))
+                (str/lower-case (str (:type %)))))
+       (or "")))
+
+(defn- numeriek-type?
+  [type-str]
+  (boolean (some #(str/includes? type-str %)
+                 ["int" "real" "num" "dec" "floa" "doub"])))
+
+(defn- filter-clause
+  "SQL-fragment met parameters voor één kolomfilter. Numerieke
+  vergelijking als de kolom een numeriek type heeft en de waarde er
+  als getal uitziet, anders tekstuele vergelijking. Ongeldige
+  kolommen of filters zonder waarde worden overgeslagen; kolommen
+  zijn gevalideerd tegen het schema en waarden gaan als
+  query-parameter, dus er is geen SQL-injectie mogelijk."
+  [ds table {:keys [kolom op waarde tm]}]
+  (when (and kolom (valid-column? ds table kolom)
+             (not (str/blank? (str waarde))))
+    (let [waarde (str waarde)
+          num?   (and (re-matches #"-?\d+(\.\d+)?" waarde)
+                      (numeriek-type? (kolom-type ds table kolom)))
+          col    (if num?
+                   (str "CAST(\"" kolom "\" AS REAL)")
+                   (str "CAST(\"" kolom "\" AS TEXT)"))
+          op     (or op "=")
+          tm     (str tm)]
+      (cond
+        (= op "%")
+        [(str col " LIKE ?") [(str "%" waarde "%")]]
+        (and (= op "t/m") (not (str/blank? tm)))
+        [(str col " BETWEEN ? AND ?") [waarde tm]]
+        :else
+        (case op
+          "t/m" [(str col " = ?") [waarde]]
+          ">"   [(str col " > ?") [waarde]]
+          "<"   [(str col " < ?") [waarde]]
+          ">="  [(str col " >= ?") [waarde]]
+          "<="  [(str col " <= ?") [waarde]]
+          "!="  [(str col " != ?") [waarde]]
+          [(str col " = ?") [waarde]])))))
+
 (defn count-rows
   [ds table & [where-params]]
   (let [{:keys [where params]} (first where-params)
@@ -51,25 +97,33 @@
     (:n (first (jdbc/execute! ds (into [sql] params))))))
 
 (defn select-rows
-  "Paginering + optionele zoekterm. q filtert op alle kolommen
-  (gecast naar tekst) met LIKE. Kolomnamen komen uit de database zelf,
-  waarden worden als parameter meegegeven."
-  [ds table {:keys [page q page-size]}]
+  "Paginering + optionele zoekterm (q: LIKE over alle kolommen,
+  OR-gekoppeld) + kolomfilters (AND-gekoppeld). Kolomnamen komen
+  uit de database zelf, waarden gaan als parameters mee."
+  [ds table {:keys [page q page-size filters]}]
   (let [cols  (table-columns ds table)
         page  (max 1 (or page 1))
         size  (or page-size 50)
-        where (when (and q (seq q))
-                (str/join " OR " (map #(str "CAST(\"" (:name %) "\" AS TEXT) LIKE ?") cols)))
-        params (when (and q (seq q)) (repeat (count cols) (str "%" q "%")))
+        zoek  (when (and q (seq q))
+                {:where (str/join " OR "
+                                (map #(str "CAST(\"" (:name %) "\" AS TEXT) LIKE ?") cols))
+                 :params (vec (repeat (count cols) (str "%" q "%")))})
+        flts  (keep #(filter-clause ds table %) (or filters []))
+        where-parts (concat (when zoek [(:where zoek)])
+                            (map first flts))
+        where (when (seq where-parts) (str/join " AND " where-parts))
+        params (concat (when zoek (:params zoek)) (mapcat second flts))
         sql    (str "SELECT * FROM \"" table "\" "
                     (when where (str "WHERE " where))
                     " LIMIT ? OFFSET ?")
-        rows   (jdbc/execute! ds (into [sql] (concat params [size (* (dec page) size)]))
+        rows   (jdbc/execute! ds (into [sql] (concat params
+                                                   [size (* (dec page) size)]))
                               {:builder-fn rs/as-unqualified-maps})]
     {:rows rows
      :page page
      :page-size size
-     :total (count-rows ds table (when where {:where where :params params}))}))
+     :total (count-rows ds table (when where
+                                   {:where where :params (vec params)}))}))
 
 (defn find-row
   "Eén rij opzoeken op de (vermoede) primaire sleutel."

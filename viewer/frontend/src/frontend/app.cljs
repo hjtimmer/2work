@@ -7,7 +7,7 @@
 
 (defonce state (r/atom {:token nil :naam nil :fout nil :tables [] :tabel nil
                         :data nil :zoek "" :geselecteerd nil :related nil :relaties-tonen false
-                        :top [] :onder {}}))
+                        :top [] :onder {} :filters []}))
 (defonce ws (atom nil))
 (defonce wachtend (atom {}))
 
@@ -30,21 +30,13 @@
           (fn [] (when (:token @state)
                    (swap! state assoc :token nil :fout "Verbinding verloren, opnieuw inloggen"))))))
 
-(defn laad-tabellen []
-  (stuur {:action "tables" :token (:token @state)}
-         (fn [m]
-           (swap! state assoc
-                  :tables (:tables m)
-                  :top (or (:top m) (:tables m))
-                  ;; onderliggende keys komen als keywords binnen
-                  ;; (js->clj :keywordize-keys), zet terug naar strings
-                  :onder (into {} (map (fn [[k v]] [(name k) v]) (:onder m)))))))
-
 (defn laad-tabel [naam & [page q]]
-  (stuur {:action "table" :token (:token @state) :name naam
-          :page (or page 1) :q (or q "")}
-         (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
-                        :geselecteerd nil :related nil))))
+  (let [filters (vec (remove #(str/blank? (str (:waarde %)))
+                              (or (:filters @state) [])))]
+    (stuur {:action "table" :token (:token @state) :name naam
+            :page (or page 1) :q (or q "") :filters filters}
+           (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
+                          :geselecteerd nil :related nil)))))
 
 (declare selecteer-rij)
 
@@ -52,7 +44,7 @@
   (stuur {:action "table" :token (:token @state) :name naam :page 1 :q (str id)}
          (fn [m]
            (swap! state assoc :tabel naam :data m :zoek (str id)
-                  :geselecteerd nil :related nil)
+                  :geselecteerd nil :related nil :filters [])
            (let [pk (get m :pk)]
              (when-let [rij (some #(when (= (str (get % (keyword pk))) (str id)) %)
                                   (get m :rows))]
@@ -146,7 +138,9 @@
    [:> mui/List
     (for [t (:top @state)]
       ^{:key t}
-      [:> mui/ListItem {:button true :on-click #(laad-tabel t)}
+      [:> mui/ListItem {:button true
+                     :on-click #(do (swap! state assoc :filters [])
+                                    (laad-tabel t))}
        [:> mui/ListItemIcon [:> icons/TableChart]]
        [:> mui/ListItemText {:primary t}]])]])
 
@@ -212,31 +206,64 @@
          ^{:key (str (:richting r) "-" (:tabel r) "-" (:kolom r))}
          [relatie-paneel naam sel-id r]))]))
 
+(defn- filter-regel [naam columns i]
+  (let [f   (get (:filters @state) i)
+        upd (fn [k v] (swap! state assoc-in [:filters i k] v))
+        wis #(swap! state update :filters
+                    (fn [fs] (vec (keep-indexed (fn [j x] (when (not= j i) x))
+                                               fs))))]
+    [:div {:style {:display "flex" :alignItems "center" :flexWrap "wrap"
+                   :marginTop 4}}
+     [:> mui/NativeSelect {:value (or (:kolom f) "")
+                           :style {:marginRight 8 :minWidth 160}
+                           :on-change #(upd :kolom (.. % -target -value))}
+      (for [c columns] ^{:key c} [:option {:value c} (str c)])]
+     [:> mui/NativeSelect {:value (or (:op f) "=")
+                           :style {:marginRight 8 :minWidth 80}
+                           :on-change #(upd :op (.. % -target -value))}
+      (for [o ["=" ">" "<" ">=" "<=" "%" "t/m"]]
+        ^{:key o} [:option {:value o} o])]
+     [:> mui/TextField {:label "Waarde" :value (or (:waarde f) "")
+                        :style {:marginRight 8 :minWidth 140}
+                        :on-change #(upd :waarde (.. % -target -value))
+                        :on-key-down #(when (= (.-key %) "Enter")
+                                        (laad-tabel naam 1))}]
+     (when (= (:op f) "t/m")
+       [:> mui/TextField {:label "t/m" :value (or (:tm f) "")
+                          :style {:marginRight 8 :minWidth 100}
+                          :on-change #(upd :tm (.. % -target -value))
+                          :on-key-down #(when (= (.-key %) "Enter")
+                                          (laad-tabel naam 1))}])
+     [:> mui/IconButton {:on-click wis} [:> icons/Delete]]]))
+
 (defn tabel-view []
   (let [{:keys [columns rows page page-size total pk]} (:data @state)
-        naam (:tabel @state)
-        zoeken (r/cursor state [:zoek])]
+        naam (:tabel @state)]
     [:> mui/Container {:maxWidth "lg" :style {:marginTop 24}}
      [:> mui/Breadcrumbs {:style {:marginBottom 8}}
       [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
-                                            (swap! state dissoc :tabel :data)
-                                            (laad-tabellen))}
+                                             (swap! state dissoc :tabel :data)
+                                             (laad-tabellen))}
        "Tabellen"]
       [:> mui/Typography {:color "textPrimary"} naam]]
      [:> mui/Typography {:variant "h5" :gutterBottom true}
       (str naam " (" total " rijen)")]
-     [:div {:style {:display "flex" :alignItems "flex-start" :marginTop 8}}
-      [:> mui/TextField {:label "Zoeken in alle kolommen"
-                         :value @zoeken
-                         :margin "normal"
-                         :style {:flex 1}
-                         :on-change #(reset! zoeken (.. % -target -value))
-                         :on-key-down #(when (= (.-key %) "Enter")
-                                         (laad-tabel naam 1 @zoeken))}]
-      [:> mui/Button {:variant "contained" :color "primary"
-                      :style {:margin "16px 8px 0 8px"}
-                      :on-click #(laad-tabel naam 1 @zoeken)}
-       "Zoeken"]]
+     [:div {:style {:marginTop 8}}
+      (for [i (range (count (:filters @state)))]
+        ^{:key i}
+        [filter-regel naam columns i])
+      [:div {:style {:marginTop 8}}
+       [:> mui/Button {:on-click #(swap! state update :filters conj
+                                         {:kolom (or (first columns) "")
+                                          :op "=" :waarde "" :tm ""})}
+        "Filter toevoegen"]
+       [:> mui/Button {:variant "contained" :color "primary"
+                      :style {:margin "0 8px"}
+                      :on-click #(laad-tabel naam 1)}
+        "Zoeken"]
+       [:> mui/Button {:on-click #(do (swap! state assoc :filters [])
+                                      (laad-tabel naam 1))}
+        "Filters wissen"]]]
      [:> mui/FormControlLabel
       {:control (r/as-element
                  [:> mui/Checkbox
@@ -267,10 +294,9 @@
        :page (dec page)
        :rows-per-page page-size
        :rows-per-page-options [20]
-       :on-change-page (fn [_ p] (laad-tabel naam (inc p) @zoeken))}]
+       :on-change-page (fn [_ p] (laad-tabel naam (inc p)))}]
      (when (and (:relaties-tonen @state) (:geselecteerd @state))
        [gerelateerd-view naam (:geselecteerd @state)])]))
-
 
 (defn app []
   (if-not (:token @state)
