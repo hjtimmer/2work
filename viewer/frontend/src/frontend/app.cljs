@@ -131,7 +131,7 @@
                        (= (:type m) "login-ok")
                        (do (swap! state assoc :token (:token m) :naam (:naam m) :fout nil)
                            (laad-tabellen)
-                           (laad-tabel "Document"))
+                           (laad-tabel "Dossiers"))
                        :else
                        (swap! state assoc :fout (:melding m))))))}
          "Inloggen"]]])))
@@ -237,7 +237,7 @@
      [:> mui/Breadcrumbs {:style {:marginBottom 8}}
       [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
                                              (swap! state assoc :filters [])
-                                             (laad-tabel "Document"))}
+                                             (laad-tabel "Dossiers"))}
        "Document"]
       [:> mui/Typography {:color "textPrimary"} naam]]
      [:> mui/Typography {:variant "h5" :gutterBottom true}
