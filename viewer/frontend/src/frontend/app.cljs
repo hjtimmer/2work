@@ -39,10 +39,10 @@
                           :geselecteerd nil :related nil)))))
 
 (defn laad-tabellen []
+  ;; vult alleen de interne tabellenlijst (voor de FK-links);
+  ;; de interface start rechtstreeks bij de entiteit Document
   (stuur {:action "tables" :token (:token @state)}
-         (fn [m] (swap! state assoc :top (:top m) :onder (:onder m)
-                        :tables (:tables m) :naam (:user m)
-                        :tabel nil :data nil :geselecteerd nil :related nil))))
+         (fn [m] (swap! state assoc :tables (:tables m) :naam (:user m)))))
 
 (declare selecteer-rij)
 
@@ -130,25 +130,13 @@
                      (cond
                        (= (:type m) "login-ok")
                        (do (swap! state assoc :token (:token m) :naam (:naam m) :fout nil)
-                           (laad-tabellen))
+                           (laad-tabellen)
+                           (laad-tabel "Document"))
                        :else
                        (swap! state assoc :fout (:melding m))))))}
          "Inloggen"]]])))
 
-(defn tabellen-view []
-  [:> mui/Container {:maxWidth "md" :style {:marginTop 24}}
-   [:> mui/Typography {:variant "h5"}
-    (str "Welkom, " (or (:naam @state) ""))]
-   ;; alleen de top-entiteiten; de overige tabellen zijn
-   ;; bereikbaar via de gerelateerde panelen bij een geselecteerde rij
-   [:> mui/List
-    (for [t (:top @state)]
-      ^{:key t}
-      [:> mui/ListItem {:button true
-                     :on-click #(do (swap! state assoc :filters [])
-                                    (laad-tabel t))}
-       [:> mui/ListItemIcon [:> icons/TableChart]]
-       [:> mui/ListItemText {:primary t}]])]])
+
 
 (defn- fk-link [kolom waarde]
   (let [lc  (str/lower-case (name kolom))
@@ -248,9 +236,9 @@
     [:> mui/Container {:maxWidth "lg" :style {:marginTop 24}}
      [:> mui/Breadcrumbs {:style {:marginBottom 8}}
       [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
-                                             (swap! state dissoc :tabel :data)
-                                             (laad-tabellen))}
-       "Tabellen"]
+                                             (swap! state assoc :filters [])
+                                             (laad-tabel "Document"))}
+       "Document"]
       [:> mui/Typography {:color "textPrimary"} naam]]
      [:> mui/Typography {:variant "h5" :gutterBottom true}
       (str naam " (" total " rijen)")]
@@ -304,12 +292,16 @@
      (when (and (:relaties-tonen @state) (:geselecteerd @state))
        [gerelateerd-view naam (:geselecteerd @state)])]))
 
+(defn- laden-view []
+  [:> mui/Container {:maxWidth "lg" :style {:marginTop 24}}
+   [:> mui/Typography {:color "textSecondary"} "Gegevens laden..."]])
+
 (defn app []
   (if-not (:token @state)
     [login-view]
-    (if (:tabel @state)
+    (if (:data @state)
       [tabel-view]
-      [tabellen-view])))
+      [laden-view])))
 
 (defn init []
   (verbind)
