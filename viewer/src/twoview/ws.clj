@@ -18,11 +18,10 @@
 
 (defn- send! [ch m] (http/send! ch (json/generate-string m)))
 
-(defonce schema
-  "Schema-atom, gevuld bij het opstarten van de server
-  (init-schema!, aangeroepen vanuit twoview.core). Vertaalt
-  entiteit-ids naar echte tabelnamen en omgekeerd."
-  (atom nil))
+;; Schema-atom, gevuld bij het opstarten van de server
+;; (init-schema!, aangeroepen vanuit twoview.core). Vertaalt
+;; entiteit-ids naar echte tabelnamen en omgekeerd.
+(defonce schema (atom nil))
 
 (defn init-schema!
   "Schema opbouwen en in het atom opslaan. Eén keer aanroepen bij het
