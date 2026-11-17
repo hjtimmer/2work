@@ -40,7 +40,7 @@
 
 (defn laad-tabellen []
   ;; vult alleen de interne tabellenlijst (voor de FK-links);
-  ;; de interface start rechtstreeks bij de entiteit Document
+  ;; de interface start rechtstreeks bij de entiteit DOSSIER
   (stuur {:action "tables" :token (:token @state)}
          (fn [m] (swap! state assoc :tables (:tables m) :naam (:user m)))))
 
@@ -131,7 +131,7 @@
                        (= (:type m) "login-ok")
                        (do (swap! state assoc :token (:token m) :naam (:naam m) :fout nil)
                            (laad-tabellen)
-                           (laad-tabel "Dossiers"))
+                           (laad-tabel "DOSSIER"))
                        :else
                        (swap! state assoc :fout (:melding m))))))}
          "Inloggen"]]])))
@@ -156,6 +156,16 @@
        (str waarde)]
       (str waarde))))
 
+(defn- schermnaam
+  "Leesbare weergavenaam van een tabel voor in het scherm. De naam
+  in de database is leidend (bijv. DOSSIER, met hoofdletters);
+  alle serveraanroepen gebruiken die exacte naam, in de interface
+  tonen we een nette camelcase-schrijfwijze (bijv. Dossier)."
+  [t]
+  (->> (str/split (str (str/lower-case t)) #"_")
+       (map str/capitalize)
+       (str/join " ")))
+
 (defn- mini-tabel [columns rows on-click]
   [:> mui/Table {:size "small"}
    [:> mui/TableHead
@@ -175,7 +185,7 @@
    [:> mui/AccordionSummary
     {:expand-icon (r/as-element [:> icons/ExpandMore])}
     [:> mui/Typography {:variant "subtitle2"}
-     (str tabel " (" (count rows) ")")]]
+     (str (schermnaam tabel) " (" (count rows) ")")]]
    [:> mui/AccordionDetails {:style {:padding 0}}
     [mini-tabel columns rows
      #(ga-naar-rij tabel (str (get % (keyword pk))))]
@@ -237,11 +247,11 @@
      [:> mui/Breadcrumbs {:style {:marginBottom 8}}
       [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
                                              (swap! state assoc :filters [])
-                                             (laad-tabel "Dossiers"))}
-       "Document"]
-      [:> mui/Typography {:color "textPrimary"} naam]]
+                                             (laad-tabel "DOSSIER"))}
+       (schermnaam "DOSSIER")]
+      [:> mui/Typography {:color "textPrimary"} (schermnaam naam)]]
      [:> mui/Typography {:variant "h5" :gutterBottom true}
-      (str naam " (" total " rijen)")]
+      (str (schermnaam naam) " (" total " rijen)")]
      [:div {:style {:marginTop 8}}
       (for [i (range (count (:filters @state)))]
         ^{:key i}

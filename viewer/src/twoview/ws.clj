@@ -99,7 +99,7 @@
   bereikbaar via de gerelateerde panelen bij een geselecteerde rij
   (en via de FK-links in de tabelcellen). Pas deze lijst aan om
   andere entiteiten aan het menu toe te voegen."
-  ["Dossiers"])
+  ["DOSSIER"])
 
 (defn ws-handler [ds users-ds sessie-max]
   (fn [request]

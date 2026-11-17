@@ -6,8 +6,24 @@
             [next.jdbc.result-set :as rs]
             [clojure.string :as str]))
 
+(defn- veilige-identifier?
+  "Defensieve tekenset-controle op identifiers die in SQL worden
+  geïnterpoleerd. De tabel- en kolomnamen worden al gevalideerd
+  tegen het werkelijke schema; deze extra controle vangt afwijkende
+  schemanamen (bijv. met quotes of spaties) af, zodat er nooit SQL
+  gebroken of gemanipuleerd kan worden. Werkt database-onafhankelijk
+  (SQLite, Oracle, SQL Server), ongeacht hoe de client de naam
+  meestuurt."
+  [s]
+  (boolean (and (string? s)
+                (re-matches #"^[A-Za-z0-9_$]+$" s))))
+
 (defn list-tables
-  "Alle gebruikerstabellen (zonder sqlite-internes en zonder views)."
+  "Alle gebruikerstabellen (zonder sqlite-internes en zonder views).
+  DIALECT: dit is één van de twee SQLite-specifieke functies; bij een
+  latere overstap naar Oracle of SQL Server alleen deze functie en
+  table-columns vervangen door het dialect-equivalent
+  (ALL_TABLES/ALL_TAB_COLUMNS, sys.tables/sys.columns)."
   [ds]
   (->> (jdbc/execute! ds ["SELECT name FROM sqlite_master
                            WHERE type = 'table'
@@ -22,7 +38,9 @@
 (defn table-columns
   "Kolommen van een tabel: name, type, pk.
   Merk op: via pragma_table_info als tabel-functie, want een directe
-  PRAGMA-opdracht ondersteunt geen bind-parameters via JDBC."
+  PRAGMA-opdracht ondersteunt geen bind-parameters via JDBC.
+  DIALECT: SQLite-specifiek; bij Oracle of SQL Server vervangen door
+  ALL_TAB_COLUMNS respectievelijk sys.columns (zie list-tables)."
   [ds table]
   (jdbc/execute! ds ["SELECT name, type, pk FROM pragma_table_info(?)"
                      table]
@@ -39,9 +57,10 @@
                  (:name %)) cols)
         (:name (first cols)))))
 (defn- valid-column? [ds table column]
-  (->> (table-columns ds table)
-       (some #(= column (:name %)))
-       boolean))
+  (and (veilige-identifier? (str column))
+       (->> (table-columns ds table)
+            (some #(= column (:name %)))
+            boolean)))
 
 (defn- kolom-type
   "SQL-type van een kolom (kleine letters), of een lege string."
@@ -91,17 +110,23 @@
 
 (defn count-rows
   [ds table & [where-params]]
-  (let [{:keys [where params]} (first where-params)
-        sql (str "SELECT COUNT(*) AS n FROM \"" table "\" "
-                 (when where (str "WHERE " where)))]
-    (:n (first (jdbc/execute! ds (into [sql] params))))))
+  (when (veilige-identifier? (str table))
+    (let [{:keys [where params]} (first where-params)
+          sql (str "SELECT COUNT(*) AS n FROM \"" table "\" "
+                   (when where (str "WHERE " where)))]
+      (:n (first (jdbc/execute! ds (into [sql] params)))))))
 
 (defn select-rows
   "Paginering + optionele zoekterm (q: LIKE over alle kolommen,
+  DIALECT: SQLite; bij Oracle/SQL Server LIMIT/OFFSET vervangen
+  door FETCH FIRST/OFFSET (zelfde parameters, alleen andere SQL-tekst);
+  de waarden blijven prepared parameters.
   OR-gekoppeld) + kolomfilters (AND-gekoppeld). Kolomnamen komen
   uit de database zelf, waarden gaan als parameters mee."
   [ds table {:keys [page q page-size filters]}]
-  (let [cols  (table-columns ds table)
+  (if-not (veilige-identifier? (str table))
+    {:rows [] :page (or page 1) :page-size (or page-size 50) :total 0}
+    (let [cols  (table-columns ds table)
         page  (max 1 (or page 1))
         size  (or page-size 50)
         zoek  (when (and q (seq q))
@@ -123,12 +148,13 @@
      :page page
      :page-size size
      :total (count-rows ds table (when where
-                                   {:where where :params (vec params)}))}))
+                                   {:where where :params (vec params)}))})))
 
 (defn find-row
   "Eén rij opzoeken op de (vermoede) primaire sleutel."
   [ds table pk-column id]
-  (when (valid-column? ds table pk-column)
+  (when (and (veilige-identifier? (str table))
+             (valid-column? ds table pk-column))
     (first (jdbc/execute! ds [(str "SELECT * FROM \"" table "\" WHERE \"" pk-column "\" = ? LIMIT 1") id]
                          {:builder-fn rs/as-unqualified-maps}))))
 
@@ -137,7 +163,8 @@
   is aan de gegeven waarde. Beperkt tot limit (standaard 100) rijen,
   met optionele offset voor vervolgbatches."
   [ds table column value & [limit offset]]
-  (when (valid-column? ds table column)
+  (when (and (veilige-identifier? (str table))
+             (valid-column? ds table column))
     (jdbc/execute! ds [(str "SELECT * FROM \"" table "\" "
                             "WHERE CAST(\"" column "\" AS TEXT) = ? "
                             "LIMIT ? OFFSET ?")
