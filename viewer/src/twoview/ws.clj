@@ -157,7 +157,7 @@
   "Entiteiten die als startpunt dienen (aangeduid met de echte
   tabelnaam; bij het opstarten vertaald naar entiteit-ids). Pas deze
   lijst aan om een ander startpunt te kiezen."
-  ["DOSSIER"])
+  ["dossier"])
 
 (defn- do-tabellen
   "De entiteiten die de gebruiker mag zien, als ids met weergavenamen,
