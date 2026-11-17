@@ -38,6 +38,12 @@
            (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
                           :geselecteerd nil :related nil)))))
 
+(defn laad-tabellen []
+  (stuur {:action "tables" :token (:token @state)}
+         (fn [m] (swap! state assoc :top (:top m) :onder (:onder m)
+                        :tables (:tables m) :naam (:user m)
+                        :tabel nil :data nil :geselecteerd nil :related nil))))
+
 (declare selecteer-rij)
 
 (defn ga-naar-rij [naam id]
