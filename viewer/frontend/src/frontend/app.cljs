@@ -30,65 +30,69 @@
           (fn [] (when (:token @state)
                    (swap! state assoc :token nil :fout "Verbinding verloren, opnieuw inloggen"))))))
 
-(defn laad-tabel [naam & [page q]]
+(defn laad-tabel [tid & [page]]
   (let [filters (vec (remove #(str/blank? (str (:waarde %)))
                               (or (:filters @state) [])))]
-    (stuur {:action "table" :token (:token @state) :name naam
-            :page (or page 1) :q (or q "") :filters filters}
-           (fn [m] (swap! state assoc :tabel naam :data m :zoek (:q m)
+    (stuur {:action "table" :token (:token @state) :tid tid
+            :page (or page 1) :q "" :filters filters}
+           (fn [m] (swap! state assoc :tabel tid :data m :zoek ""
                           :geselecteerd nil :related nil)))))
 
 (defn laad-tabellen []
-  ;; vult alleen de interne tabellenlijst (voor de FK-links);
-  ;; de interface start rechtstreeks bij de entiteit DOSSIER
+  ;; haalt de entiteitenlijst op (ids + weergavenamen; de echte
+  ;; entiteitnamen kent alleen de server) en opent daarna direct
+  ;; de eerste top-entiteit
   (stuur {:action "tables" :token (:token @state)}
-         (fn [m] (swap! state assoc :tables (:tables m) :naam (:user m)))))
+         (fn [m]
+           (swap! state assoc :top (:top m) :naam (:user m))
+           (when-let [eerste (first (:top m))]
+             (laad-tabel (:tid eerste))))))
 
 (declare selecteer-rij)
 
-(defn ga-naar-rij [naam id]
-  (stuur {:action "table" :token (:token @state) :name naam :page 1 :q (str id)}
+(defn ga-naar-rij [tid waarde]
+  (stuur {:action "table" :token (:token @state) :tid tid :page 1 :q (str waarde)}
          (fn [m]
-           (swap! state assoc :tabel naam :data m :zoek (str id)
+           (swap! state assoc :tabel tid :data m :zoek (str waarde)
                   :geselecteerd nil :related nil :filters [])
            (let [pk (get m :pk)]
-             (when-let [rij (some #(when (= (str (get % (keyword pk))) (str id)) %)
+             (when-let [rij (some #(when (= (str (get % (keyword pk))) (str waarde)) %)
                                   (get m :rows))]
-               (selecteer-rij naam pk rij))))))
+               (selecteer-rij tid pk rij))))))
 
-(defn laad-related [naam id]
-  (stuur {:action "related" :token (:token @state) :name naam :row-id id}
+(defn laad-related [tid rij-id]
+  (stuur {:action "related" :token (:token @state) :tid tid :row-id rij-id}
          (fn [m] (swap! state assoc :related m))))
 
-(defn laad-meer [naam id richting tabel kolom vanaf]
-  (stuur {:action "related-meer" :token (:token @state) :name naam :row-id id
-          :tabel tabel :kolom kolom :richting richting :offset vanaf}
+(defn laad-meer [tid rij-id richting doel kolom vanaf]
+  (stuur {:action "related-meer" :token (:token @state) :tid tid :row-id rij-id
+          :doel doel :kolom kolom :richting richting :offset vanaf}
          (fn [m]
            (swap! state update :related
                   (fn [rel]
                     (assoc rel :relaties
                            (mapv (fn [r]
-                                   (if (and (= (:tabel r) tabel) (= (:kolom r) kolom))
+                                   (if (and (= (:tid r) doel) (= (:kolom r) kolom))
                                      (assoc r :rows (into (:rows r) (:rows m))
                                             :meer (:meer m)
                                             :vanaf (+ vanaf (count (:rows m))))
                                      r))
                                  (:relaties rel))))))))
 
-(defn selecteer-rij [naam pk rij]
+(defn selecteer-rij [tid pk rij]
   (let [id (get rij (keyword pk))]
     (if (= (:geselecteerd @state) id)
       (swap! state assoc :geselecteerd nil :related nil)
       (do
         (swap! state assoc :geselecteerd id :related nil)
         (when (:relaties-tonen @state)
-          (laad-related naam id))))))
+          (laad-related tid id))))))
 
-(defn toggle-relaties [naam]
+(defn toggle-relaties [tid]
   (let [nu (not (:relaties-tonen @state))]
     (swap! state assoc :relaties-tonen nu)
     (when (and nu (:geselecteerd @state))
-      (laad-related naam (:geselecteerd @state)))))
+      (laad-related tid (:geselecteerd @state)))))
 
 (defn- text-field [label waarde on-change & {:keys [type input-props]}]
   [:> mui/TextField
@@ -130,23 +134,18 @@
                      (cond
                        (= (:type m) "login-ok")
                        (do (swap! state assoc :token (:token m) :naam (:naam m) :fout nil)
-                           (laad-tabellen)
-                           (laad-tabel "DOSSIER"))
+                           (laad-tabellen))
                        :else
                        (swap! state assoc :fout (:melding m))))))}
          "Inloggen"]]])))
 
 
 
-(defn- fk-link [kolom waarde]
-  (let [lc  (str/lower-case (name kolom))
-        id? (and (str/ends-with? lc "id") (> (count lc) 2))
-        ;; zoek de exacte tabelnaam (met juiste hoofdletters) erbij,
-        ;; want de server vergelijkt tabelnamen hoofdlettergevoelig
-        doel (when id?
-               (some #(when (= (str/lower-case %)
-                               (subs lc 0 (- (count lc) 2))))
-                     (:tables @state)))]
+(defn- fk-link [fk kolom waarde]
+  ;; fk: door de server meegeleverde vertaaltabel
+  ;; fk-kolom -> entiteit-id van het doel; de client kent de
+  ;; echte tabelnamen niet
+  (let [doel (get fk kolom)]
     (if doel
       [:> mui/Link
        {:href "#"
@@ -155,16 +154,6 @@
         :style {:cursor "pointer"}}
        (str waarde)]
       (str waarde))))
-
-(defn- schermnaam
-  "Leesbare weergavenaam van een tabel voor in het scherm. De naam
-  in de database is leidend (bijv. DOSSIER, met hoofdletters);
-  alle serveraanroepen gebruiken die exacte naam, in de interface
-  tonen we een nette camelcase-schrijfwijze (bijv. Dossier)."
-  [t]
-  (->> (str/split (str (str/lower-case t)) #"_")
-       (map str/capitalize)
-       (str/join " ")))
 
 (defn- mini-tabel [columns rows on-click]
   [:> mui/Table {:size "small"}
@@ -180,21 +169,21 @@
                         (let [v (get row (keyword c))]
                           (if (nil? v) "-" (str v)))]))))])
 
-(defn- relatie-paneel [naam sel-id {:keys [richting tabel kolom columns rows pk meer vanaf]}]
+(defn- relatie-paneel [tid sel-id {:keys [richting doel scherm kolom columns rows pk meer vanaf]}]
   [:> mui/Accordion {:defaultExpanded true}
    [:> mui/AccordionSummary
     {:expand-icon (r/as-element [:> icons/ExpandMore])}
     [:> mui/Typography {:variant "subtitle2"}
-     (str (schermnaam tabel) " (" (count rows) ")")]]
+     (str (or scherm doel) " (" (count rows) ")")]]
    [:> mui/AccordionDetails {:style {:padding 0}}
     [mini-tabel columns rows
-     #(ga-naar-rij tabel (str (get % (keyword pk))))]
+     #(ga-naar-rij doel (str (get % (keyword pk))))]
     (when meer
       [:> mui/Button {:size "small" :style {:margin 8}
-                      :on-click #(laad-meer naam sel-id richting tabel kolom vanaf)}
+                      :on-click #(laad-meer tid sel-id richting doel kolom vanaf)}
        "Meer laden"])]])
 
-(defn- gerelateerd-view [naam sel-id]
+(defn- gerelateerd-view [tid sel-id]
   (let [related (:related @state)]
     [:div {:style {:marginTop 16}}
      [:> mui/Divider {:style {:marginBottom 8}}]
@@ -208,9 +197,9 @@
        :else
        (for [r (:relaties related)]
          ^{:key (str (:richting r) "-" (:tabel r) "-" (:kolom r))}
-         [relatie-paneel naam sel-id r]))]))
+         [relatie-paneel tid sel-id r]))]))
 
-(defn- filter-regel [naam columns i]
+(defn- filter-regel [tid columns i]
   (let [f   (get (:filters @state) i)
         upd (fn [k v] (swap! state assoc-in [:filters i k] v))
         wis #(swap! state update :filters
@@ -231,31 +220,32 @@
                         :style {:marginRight 8 :minWidth 140}
                         :on-change #(upd :waarde (.. % -target -value))
                         :on-key-down #(when (= (.-key %) "Enter")
-                                        (laad-tabel naam 1))}]
+                                        (laad-tabel tid 1))}]
      (when (= (:op f) "t/m")
        [:> mui/TextField {:label "t/m" :value (or (:tm f) "")
                           :style {:marginRight 8 :minWidth 100}
                           :on-change #(upd :tm (.. % -target -value))
                           :on-key-down #(when (= (.-key %) "Enter")
-                                          (laad-tabel naam 1))}])
+                                          (laad-tabel tid 1))}])
      [:> mui/IconButton {:on-click wis} [:> icons/Delete]]]))
 
 (defn tabel-view []
-  (let [{:keys [columns rows page page-size total pk]} (:data @state)
-        naam (:tabel @state)]
+  (let [{:keys [columns rows page page-size total pk scherm fk]} (:data @state)
+        tid (:tabel @state)]
     [:> mui/Container {:maxWidth "lg" :style {:marginTop 24}}
      [:> mui/Breadcrumbs {:style {:marginBottom 8}}
-      [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
-                                             (swap! state assoc :filters [])
-                                             (laad-tabel "DOSSIER"))}
-       (schermnaam "DOSSIER")]
-      [:> mui/Typography {:color "textPrimary"} (schermnaam naam)]]
+      (when-let [top (first (:top @state))]
+        [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
+                                               (swap! state assoc :filters [])
+                                               (laad-tabel (:tid top)))}
+         (:scherm top)])
+      [:> mui/Typography {:color "textPrimary"} (or scherm tid)]]
      [:> mui/Typography {:variant "h5" :gutterBottom true}
-      (str (schermnaam naam) " (" total " rijen)")]
+      (str (or scherm tid) " (" total " rijen)")]
      [:div {:style {:marginTop 8}}
       (for [i (range (count (:filters @state)))]
         ^{:key i}
-        [filter-regel naam columns i])
+        [filter-regel tid columns i])
       [:div {:style {:marginTop 8}}
        [:> mui/Button {:on-click #(swap! state update :filters conj
                                          {:kolom (or (first columns) "")
@@ -263,17 +253,17 @@
         "Filter toevoegen"]
        [:> mui/Button {:variant "contained" :color "primary"
                       :style {:margin "0 8px"}
-                      :on-click #(laad-tabel naam 1)}
+                      :on-click #(laad-tabel tid 1)}
         "Zoeken"]
        [:> mui/Button {:on-click #(do (swap! state assoc :filters [])
-                                      (laad-tabel naam 1))}
+                                      (laad-tabel tid 1))}
         "Filters wissen"]]]
      [:> mui/FormControlLabel
       {:control (r/as-element
                  [:> mui/Checkbox
                   {:checked (boolean (:relaties-tonen @state))
                    :color "primary"
-                   :on-change #(toggle-relaties naam)}])
+                   :on-change #(toggle-relaties tid)}])
        :label "Gerelateerde tabellen bij geselecteerde rij"}]
      [:> mui/TableContainer {:component mui/Paper}
       [:> mui/Table {:size "small" :stickyHeader true}
@@ -287,20 +277,20 @@
                       {:key (hash row)
                        :hover true
                        :selected (= (:geselecteerd @state) (get row (keyword pk)))
-                       :on-click #(selecteer-rij naam pk row)}]
+                       :on-click #(selecteer-rij tid pk row)}]
                      (for [c columns]
                        [:> mui/TableCell {:key c}
                         (let [v (get row (keyword c))]
-                          (if (nil? v) "-" [fk-link c v]))]))))]]
+                          (if (nil? v) "-" [fk-link fk c v]))]))))]]
      [:> mui/TablePagination
       {:component "div"
        :count total
        :page (dec page)
        :rows-per-page page-size
        :rows-per-page-options [20]
-       :on-change-page (fn [_ p] (laad-tabel naam (inc p)))}]
+       :on-change-page (fn [_ p] (laad-tabel tid (inc p)))}]
      (when (and (:relaties-tonen @state) (:geselecteerd @state))
-       [gerelateerd-view naam (:geselecteerd @state)])]))
+       [gerelateerd-view tid (:geselecteerd @state)])]))
 
 (defn- laden-view []
   [:> mui/Container {:maxWidth "lg" :style {:marginTop 24}}

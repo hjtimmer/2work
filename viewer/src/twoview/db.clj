@@ -235,3 +235,50 @@
                                      (mapv :name (table-columns ds t))))))
                          tabellen)]
     (concat uitgaand inkomend)))
+
+(defn schermnaam
+  "Leesbare weergavenaam van een tabelnaam. Serverzijde berekend,
+  zodat de echte entiteitsnamen nooit naar de client gestuurd
+  hoeven te worden."
+  [t]
+  (->> (str/split (str (str/lower-case t)) #"_")
+       (map str/capitalize)
+       (str/join " ")))
+
+(defn bouw-schema
+  "Volledige schema-map voor opslag in een atom, één keer gebouwd bij
+  het opstarten van de server:
+    :id->tabel  entiteit-id -> echte tabelnaam (alleen serverzijde)
+    :tabel->id  echte tabelnaam -> entiteit-id
+    :scherm     entiteit-id -> leesbare weergavenaam
+    :fk         echte tabelnaam -> {fk-kolom -> entiteit-id van het doel}
+  De client krijgt uitsluitend ids en weergavenamen te zien; elke
+  aanroep lost de server op tegen dit schema. De ids zijn opeenvolgend
+  over de alfabetisch gesorteerde tabellen (t1, t2, ...), dus niet
+  omkeerbaar naar de echte naam. De fk-kaarten worden in één enkele
+  schemascan afgeleid (kolomnaamconventie, zie fk_afgeleid.md)."
+  [ds]
+  (let [tabellen  (vec (sort (list-tables ds)))
+        id-van    (into {} (map-indexed (fn [i t] [t (str "t" (inc i))])
+                                        tabellen))
+        id->tabel (into {} (map (fn [[t i]] [i t]) id-van))
+        kolommen  (into {} (map (fn [t] [t (mapv :name (table-columns ds t))])
+                                tabellen))
+        lc->tabel (zipmap (map str/lower-case tabellen) tabellen)
+        fk-van    (fn [t]
+                    (into {}
+                          (keep (fn [c]
+                                  (let [lc (str/lower-case c)]
+                                    (when (and (str/ends-with? lc "id")
+                                               (> (count lc) 2)
+                                               (not= lc (str (str/lower-case t) "id")))
+                                      (when-let [doel (get lc->tabel
+                                                           (subs lc 0 (- (count lc) 2)))]
+                                        [c (get id-van doel)]))))
+                                (get kolommen t))))
+        fk        (into {} (map (fn [t] [t (fk-van t)]) tabellen))
+        schermen  (into {} (map (fn [[t i]] [i (schermnaam t)]) id-van))]
+    {:id->tabel id->tabel
+     :tabel->id id-van
+     :scherm    schermen
+     :fk        fk}))

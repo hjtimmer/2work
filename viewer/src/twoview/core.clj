@@ -69,6 +69,7 @@
         users-ds   (jdbc/get-datasource users-url)]
     (users/init! users-ds)
     (users/seed! users-ds (:initiele-gebruikers viewer))
+    (ws/init-schema! ds)
     (println "[viewer] Gegevens-database:" db-url)
     (println "[viewer] Users-database:" users-url)
     (println "[viewer] Sessie verloopt na" sessie-max "sec. inactiviteit (in het geheugen)")
