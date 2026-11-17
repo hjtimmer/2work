@@ -7,7 +7,7 @@
 
 (defonce state (r/atom {:token nil :naam nil :fout nil :tables [] :tabel nil
                         :data nil :zoek "" :geselecteerd nil :related nil :relaties-tonen false
-                        :top [] :onder {} :filters []}))
+                        :top [] :onder {} :filters [] :zoek-tonen false}))
 (defonce ws (atom nil))
 (defonce wachtend (atom {}))
 
@@ -238,26 +238,46 @@
         [:> mui/Link {:href "#" :on-click #(do (.preventDefault %)
                                                (swap! state assoc :filters [])
                                                (laad-tabel (:tid top)))}
-         (:scherm top)])
+         "2Work"])
       [:> mui/Typography {:color "textPrimary"} (or scherm tid)]]
-     [:> mui/Typography {:variant "h5" :gutterBottom true}
-      (str (or scherm tid) " (" total " rijen)")]
-     [:div {:style {:marginTop 8}}
-      (for [i (range (count (:filters @state)))]
-        ^{:key i}
-        [filter-regel tid columns i])
-      [:div {:style {:marginTop 8}}
-       [:> mui/Button {:on-click #(swap! state update :filters conj
+     ;; titel met zoek-icoon; het zoekpaneel is uit-/inklapbaar.
+      ;; Is er geen enkel zoekcriterium gevuld, dan voert de server
+      ;; select * uit (zonder where).
+     [:div {:style {:display "flex" :alignItems "center"}}
+      [:> mui/Typography {:variant "h5" :gutterBottom true :style {:flex 1}}
+       (str (or scherm tid) " (" total " rijen)")]
+      [:> mui/Tooltip
+       {:title (if (:zoek-tonen @state)
+                 "Zoekcriteria verbergen"
+                 "Zoekcriteria tonen")}
+       [:> mui/IconButton {:aria-label "zoekcriteria"
+                           :color (if (:zoek-tonen @state) "primary" "default")
+                           :on-click
+                           #(do (swap! state update :zoek-tonen not)
+                                (when (and (:zoek-tonen @state)
+                                           (empty? (:filters @state)))
+                                  (swap! state update :filters conj
                                          {:kolom (or (first columns) "")
-                                          :op "=" :waarde "" :tm ""})}
-        "Filter toevoegen"]
-       [:> mui/Button {:variant "contained" :color "primary"
-                      :style {:margin "0 8px"}
-                      :on-click #(laad-tabel tid 1)}
-        "Zoeken"]
-       [:> mui/Button {:on-click #(do (swap! state assoc :filters [])
-                                      (laad-tabel tid 1))}
-        "Filters wissen"]]]
+                                          :op "=" :waarde "" :tm ""})))}
+        [:> icons/Search]]]]
+     (when (:zoek-tonen @state)
+       [:> mui/Paper {:elevation 1 :style {:padding 12 :marginBottom 12}}
+        [:div
+         (for [i (range (count (:filters @state)))]
+           ^{:key i}
+           [filter-regel tid columns i])]
+        [:div {:style {:marginTop 8}}
+         [:> mui/Button {:on-click #(swap! state update :filters conj
+                                           {:kolom (or (first columns) "")
+                                            :op "=" :waarde "" :tm ""})}
+          "Filter toevoegen"]
+         [:> mui/Button {:variant "contained" :color "primary"
+                         :style {:margin "0 8px"}
+                         :on-click #(laad-tabel tid 1)}
+          "Zoeken"]
+         [:> mui/Button {:on-click #(do (swap! state assoc :filters [])
+                                        (laad-tabel tid 1))}
+          "Filters wissen"]]])
      [:> mui/FormControlLabel
       {:control (r/as-element
                  [:> mui/Checkbox
