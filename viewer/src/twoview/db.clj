@@ -237,13 +237,19 @@
     (concat uitgaand inkomend)))
 
 (defn schermnaam
-  "Leesbare weergavenaam van een tabelnaam. Serverzijde berekend,
-  zodat de echte entiteitsnamen nooit naar de client gestuurd
-  hoeven te worden."
+  "Logische, meervoudige weergavenaam van een tabelnaam (bijv.
+  DOSSIER -> Dossiers, DOCUMENT -> Documenten). Serverzijde
+  berekend, zodat de echte entiteitsnamen nooit naar de client
+  gestuurd hoeven te worden. Nederlandse vuistregel: eindigt de
+  naam op een klinker, r, l, w of j, dan -s (Dossiers, Relaties),
+  anders -en (Documenten, Rekeningen)."
   [t]
-  (->> (str/split (str (str/lower-case t)) #"_")
-       (map str/capitalize)
-       (str/join " ")))
+  (let [basis (->> (str/split (str (str/lower-case t)) #"_")
+                   (map str/capitalize)
+                   (str/join " "))]
+    (if (re-matches #".*[aeiourlwjAEIOURLWJ]$" basis)
+      (str basis "s")
+      (str basis "en"))))
 
 (defn bouw-schema
   "Volledige schema-map voor opslag in een atom, één keer gebouwd bij
